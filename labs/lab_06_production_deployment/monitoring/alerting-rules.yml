@@ -1,0 +1,289 @@
+# Location: labs/lab_06_production_deployment/monitoring/alerting-rules.yml
+groups:
+  - name: infrastructure
+    rules:
+      - alert: InstanceDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: critical
+          category: infrastructure
+        annotations:
+          summary: "Instance {{ $labels.instance }} is down"
+          description: "Instance {{ $labels.instance }} has been down for more than 5 minutes."
+
+      - alert: HighCPUUsage
+        expr: 100 - (avg(irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 10m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is above 80% for more than 10 minutes on {{ $labels.instance }}"
+
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage is above 85% for more than 10 minutes on {{ $labels.instance }}"
+
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 < 15
+        for: 5m
+        labels:
+          severity: critical
+          category: infrastructure
+        annotations:
+          summary: "Disk space low on {{ $labels.instance }}"
+          description: "Disk space is below 15% on {{ $labels.instance }} for filesystem {{ $labels.mountpoint }}"
+
+      - alert: DiskSpaceWarning
+        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 < 25
+        for: 10m
+        labels:
+          severity: warning
+          category: infrastructure
+        annotations:
+          summary: "Disk space warning on {{ $labels.instance }}"
+          description: "Disk space is below 25% on {{ $labels.instance }} for filesystem {{ $labels.mountpoint }}"
+
+  - name: applications
+    rules:
+      - alert: ServiceDown
+        expr: up{job=~"user-service|order-service|notification-service"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          category: application
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Service {{ $labels.job }} has been down for more than 2 minutes"
+
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) * 100 > 5
+        for: 5m
+        labels:
+          severity: critical
+          category: application
+        annotations:
+          summary: "High error rate in {{ $labels.service }}"
+          description: "Error rate is above 5% for {{ $labels.service }} for more than 5 minutes"
+
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+          category: application
+        annotations:
+          summary: "High latency in {{ $labels.service }}"
+          description: "95th percentile latency is above 1 second for {{ $labels.service }}"
+
+      - alert: DatabaseConnectionHigh
+        expr: sum(rate(database_connections_active[5m])) by (service) > 80
+        for: 5m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "High database connections for {{ $labels.service }}"
+          description: "Active database connections are above 80 for {{ $labels.service }}"
+
+  - name: databases
+    rules:
+      - alert: PostgreSQLDown
+        expr: up{job="postgres-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          category: database
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "PostgreSQL has been down for more than 2 minutes"
+
+      - alert: RedisDown
+        expr: up{job="redis-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          category: database
+        annotations:
+          summary: "Redis is down"
+          description: "Redis has been down for more than 2 minutes"
+
+      - alert: MongoDBDown
+        expr: up{job="mongodb-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          category: database
+        annotations:
+          summary: "MongoDB is down"
+          description: "MongoDB has been down for more than 2 minutes"
+
+      - alert: DatabaseSlowQueries
+        expr: rate(postgres_slow_queries_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "High number of slow queries"
+          description: "Slow query rate is above 10 per second for more than 5 minutes"
+
+  - name: messaging
+    rules:
+      - alert: KafkaDown
+        expr: up{job="kafka-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          category: messaging
+        annotations:
+          summary: "Kafka is down"
+          description: "Kafka has been down for more than 2 minutes"
+
+      - alert: KafkaConsumerLag
+        expr: sum(kafka_consumer_lag_sum) by (topic, consumer_group) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          category: messaging
+        annotations:
+          summary: "High Kafka consumer lag"
+          description: "Consumer lag is above 1000 messages for topic {{ $labels.topic }} and group {{ $labels.consumer_group }}"
+
+  - name: ssl_certificates
+    rules:
+      - alert: SSLCertificateExpiring
+        expr: (probe_ssl_earliest_cert_expiry - time()) / 86400 < 30
+        for: 1h
+        labels:
+          severity: warning
+          category: security
+        annotations:
+          summary: "SSL certificate expiring soon"
+          description: "SSL certificate for {{ $labels.instance }} expires in less than 30 days"
+
+      - alert: SSLCertificateExpiringSoon
+        expr: (probe_ssl_earliest_cert_expiry - time()) / 86400 < 7
+        for: 1h
+        labels:
+          severity: critical
+          category: security
+        annotations:
+          summary: "SSL certificate expiring very soon"
+          description: "SSL certificate for {{ $labels.instance }} expires in less than 7 days"
+
+  - name: endpoint_monitoring
+    rules:
+      - alert: EndpointDown
+        expr: probe_success == 0
+        for: 5m
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: "Endpoint {{ $labels.instance }} is down"
+          description: "Endpoint {{ $labels.instance }} has been down for more than 5 minutes"
+
+      - alert: SlowEndpoint
+        expr: probe_duration_seconds > 5
+        for: 10m
+        labels:
+          severity: warning
+          category: performance
+        annotations:
+          summary: "Endpoint {{ $labels.instance }} is slow"
+          description: "Endpoint {{ $labels.instance }} response time is above 5 seconds"
+
+  - name: business_metrics
+    rules:
+      - alert: LowUserRegistrations
+        expr: increase(user_registrations_total[1h]) < 10
+        for: 2h
+        labels:
+          severity: warning
+          category: business
+        annotations:
+          summary: "Low user registration rate"
+          description: "User registrations are below 10 per hour for the last 2 hours"
+
+      - alert: HighOrderCancellations
+        expr: rate(order_cancellations_total[5m]) / rate(orders_total[5m]) * 100 > 20
+        for: 15m
+        labels:
+          severity: warning
+          category: business
+        annotations:
+          summary: "High order cancellation rate"
+          description: "Order cancellation rate is above 20% for more than 15 minutes"
+
+      - alert: PaymentFailuresHigh
+        expr: rate(payment_failures_total[5m]) / rate(payments_total[5m]) * 100 > 10
+        for: 10m
+        labels:
+          severity: critical
+          category: business
+        annotations:
+          summary: "High payment failure rate"
+          description: "Payment failure rate is above 10% for more than 10 minutes"
+
+  - name: security
+    rules:
+      - alert: TooManyFailedLogins
+        expr: increase(failed_login_attempts_total[5m]) > 50
+        for: 5m
+        labels:
+          severity: warning
+          category: security
+        annotations:
+          summary: "High number of failed login attempts"
+          description: "More than 50 failed login attempts in the last 5 minutes"
+
+      - alert: UnauthorizedAPIAccess
+        expr: increase(http_requests_total{status="401"}[5m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+          category: security
+        annotations:
+          summary: "High number of unauthorized API access attempts"
+          description: "More than 100 unauthorized API access attempts in the last 5 minutes"
+
+  - name: containers
+    rules:
+      - alert: ContainerKilled
+        expr: increase(container_tasks_state{state="dead"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          category: container
+        annotations:
+          summary: "Container killed"
+          description: "Container {{ $labels.name }} has been killed"
+
+      - alert: ContainerHighMemoryUsage
+        expr: (container_memory_usage_bytes / container_spec_memory_limit_bytes) * 100 > 90
+        for: 10m
+        labels:
+          severity: warning
+          category: container
+        annotations:
+          summary: "Container high memory usage"
+          description: "Container {{ $labels.name }} memory usage is above 90%"
+
+      - alert: ContainerHighCPUUsage
+        expr: (rate(container_cpu_usage_seconds_total[5m]) * 100) > 90
+        for: 10m
+        labels:
+          severity: warning
+          category: container
+        annotations:
+          summary: "Container high CPU usage"
+          description: "Container {{ $labels.name }} CPU usage is above 90%"

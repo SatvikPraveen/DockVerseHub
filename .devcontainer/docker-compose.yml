@@ -1,0 +1,169 @@
+# File: .devcontainer/docker-compose.yml
+version: "3.8"
+
+services:
+  devcontainer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VARIANT: bullseye
+
+    volumes:
+      - ../..:/workspaces:cached
+      - /var/run/docker.sock:/var/run/docker.sock
+      - devcontainer-vscode-extensions:/home/vscode/.vscode-server/extensions
+      - devcontainer-vscode-insiders-extensions:/home/vscode/.vscode-server-insiders/extensions
+      - devcontainer-bash-history:/home/vscode/.bash_history
+      - devcontainer-zsh-history:/home/vscode/.zsh_history
+      - devcontainer-docker-cache:/home/vscode/.docker
+      - devcontainer-npm-cache:/home/vscode/.npm
+      - devcontainer-pip-cache:/home/vscode/.cache/pip
+
+    environment:
+      - DOCKER_BUILDKIT=1
+      - COMPOSE_DOCKER_CLI_BUILD=1
+      - NODE_ENV=development
+      - PYTHONPATH=/workspaces/DockVerseHub
+      - GIT_EDITOR=code --wait
+
+    network_mode: "host"
+
+    # Uncomment to connect as root instead
+    # user: root
+
+    # Use "forwardPorts" in devcontainer.json to forward an app port locally
+    # (add the "ports" property to this file if you need to expose specific ports)
+
+    # Uncomment to use the Docker CLI from inside the container
+    privileged: true
+
+    # Keep container running for VS Code
+    command: sleep infinity
+
+    # Optional: Add additional services for development
+    depends_on:
+      - redis-dev
+      - postgres-dev
+      - elasticsearch-dev
+
+  # Development Redis instance
+  redis-dev:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - devnet
+
+  # Development PostgreSQL instance
+  postgres-dev:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: dockversehub
+      POSTGRES_USER: devuser
+      POSTGRES_PASSWORD: devpass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
+    networks:
+      - devnet
+
+  # Development Elasticsearch instance
+  elasticsearch-dev:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      - devnet
+
+  # Development Kibana instance
+  kibana-dev:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    ports:
+      - "5601:5601"
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch-dev:9200
+    depends_on:
+      - elasticsearch-dev
+    networks:
+      - devnet
+
+  # Prometheus for monitoring
+  prometheus-dev:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus:/etc/prometheus
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--storage.tsdb.retention.time=200h"
+      - "--web.enable-lifecycle"
+    networks:
+      - devnet
+
+  # Grafana for dashboards
+  grafana-dev:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources
+    networks:
+      - devnet
+
+  # MongoDB for document storage
+  mongodb-dev:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: rootpass
+      MONGO_INITDB_DATABASE: dockversehub
+    volumes:
+      - mongodb-data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d
+    networks:
+      - devnet
+
+volumes:
+  devcontainer-vscode-extensions:
+  devcontainer-vscode-insiders-extensions:
+  devcontainer-bash-history:
+  devcontainer-zsh-history:
+  devcontainer-docker-cache:
+  devcontainer-npm-cache:
+  devcontainer-pip-cache:
+  redis-data:
+  postgres-data:
+  elasticsearch-data:
+  prometheus-data:
+  grafana-data:
+  mongodb-data:
+
+networks:
+  devnet:
+    driver: bridge

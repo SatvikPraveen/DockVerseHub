@@ -1,0 +1,108 @@
+# File Location: concepts/04_networking/Dockerfile.web
+# Minimal web app for networking demos
+
+FROM python:3.9-slim
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    iputils-ping \
+    net-tools \
+    dnsutils \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Create web application
+RUN cat > app.py << 'EOF'
+import os
+import socket
+import json
+from datetime import datetime
+from flask import Flask, jsonify, request
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return jsonify({
+        'message': 'Hello from Web Container!',
+        'hostname': socket.gethostname(),
+        'container_ip': socket.gethostbyname(socket.gethostname()),
+        'timestamp': datetime.now().isoformat(),
+        'client_ip': request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
+    })
+
+@app.route('/health')
+def health():
+    return jsonify({'status': 'healthy', 'service': 'web'})
+
+@app.route('/network')
+def network_info():
+    import subprocess
+    
+    try:
+        # Get network interfaces
+        result = subprocess.run(['ip', 'addr'], capture_output=True, text=True)
+        interfaces = result.stdout
+    except:
+        interfaces = "Network info unavailable"
+    
+    return jsonify({
+        'hostname': socket.gethostname(),
+        'interfaces': interfaces,
+        'container_id': socket.gethostname()[:12]
+    })
+
+@app.route('/connect/<target>')
+def test_connection(target):
+    import subprocess
+    
+    try:
+        # Test ping
+        result = subprocess.run(['ping', '-c', '1', target], 
+                              capture_output=True, text=True, timeout=5)
+        ping_success = result.returncode == 0
+        ping_output = result.stdout
+        
+        # Test DNS resolution
+        try:
+            ip = socket.gethostbyname(target)
+            dns_success = True
+            resolved_ip = ip
+        except:
+            dns_success = False
+            resolved_ip = None
+        
+        return jsonify({
+            'target': target,
+            'ping_success': ping_success,
+            'ping_output': ping_output,
+            'dns_success': dns_success,
+            'resolved_ip': resolved_ip,
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({
+            'target': target,
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
+EOF
+
+# Install Flask
+RUN pip install flask requests
+
+# Create non-root user
+RUN useradd -m -u 1000 webuser
+USER webuser
+
+EXPOSE 5000
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:5000/health || exit 1
+
+CMD ["python", "app.py"]

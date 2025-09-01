@@ -1,0 +1,167 @@
+# File Location: concepts/05_docker_compose/scaling/resource-constraints.yml
+
+version: "3.8"
+
+services:
+  # High-resource application
+  web-app:
+    image: nginx:alpine
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    ports:
+      - "8080-8081:80"
+    networks:
+      - app-network
+
+  # Memory-intensive service
+  data-processor:
+    image: python:3.9-slim
+    command: |
+      sh -c '
+        pip install numpy pandas
+        python -c "
+        import numpy as np
+        import pandas as pd
+        import time
+        print(\"Processing large dataset...\")
+        data = np.random.rand(1000000, 10)
+        df = pd.DataFrame(data)
+        result = df.groupby(df.iloc[:, 0].round()).sum()
+        print(f\"Processed {len(df)} rows\")
+        time.sleep(3600)  # Keep running
+        "
+      '
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+        reservations:
+          memory: 1G
+          cpus: "1.0"
+    networks:
+      - app-network
+
+  # CPU-intensive service
+  cpu-worker:
+    image: alpine:latest
+    command: |
+      sh -c '
+        while true; do
+          echo "CPU intensive task started at $(date)"
+          # Simulate CPU work
+          for i in $(seq 1 1000000); do
+            echo "$i * $i" | bc > /dev/null 2>&1
+          done
+          echo "CPU task completed at $(date)"
+          sleep 30
+        done
+      '
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: "0.25" # Limit each instance to 25% CPU
+          memory: 64M
+        reservations:
+          cpus: "0.1"
+          memory: 32M
+    networks:
+      - app-network
+
+  # I/O intensive service
+  io-worker:
+    image: alpine:latest
+    command: |
+      sh -c '
+        while true; do
+          echo "I/O intensive task at $(date)"
+          # Write and read large files
+          dd if=/dev/zero of=/tmp/testfile bs=1M count=100 2>/dev/null
+          cat /tmp/testfile > /dev/null
+          rm /tmp/testfile
+          sleep 60
+        done
+      '
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    volumes:
+      - io-data:/tmp
+    networks:
+      - app-network
+
+  # Database with specific constraints
+  database:
+    image: postgres:13-alpine
+    environment:
+      POSTGRES_DB: testdb
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+      placement:
+        constraints:
+          - node.role == manager # Ensure database runs on manager node
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - app-network
+
+  # Resource monitoring
+  monitor:
+    image: alpine:latest
+    command: |
+      sh -c '
+        apk add --no-cache procps
+        while true; do
+          echo "=== Resource Usage $(date) ==="
+          echo "Memory usage:"
+          free -h
+          echo "CPU usage:"
+          ps aux | head -10
+          echo "Disk usage:"
+          df -h
+          echo "=========================="
+          sleep 30
+        done
+      '
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: 64M
+    networks:
+      - app-network
+
+volumes:
+  db-data:
+  io-data:
+
+networks:
+  app-network:
+    driver: bridge
+# Usage commands:
+# docker-compose -f resource-constraints.yml up -d
+# docker stats  # Monitor resource usage
+# docker-compose -f resource-constraints.yml up --scale cpu-worker=5

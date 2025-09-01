@@ -1,0 +1,102 @@
+# File Location: concepts/05_docker_compose/profiles-demo/testing.yml
+
+version: "3.8"
+
+services:
+  # Core application
+  app:
+    image: node:16-alpine
+    profiles: ["core", "testing"]
+    environment:
+      - NODE_ENV=test
+      - DATABASE_URL=postgresql://test:test@testdb:5432/testdb
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+    networks:
+      - test-network
+    depends_on:
+      testdb:
+        condition: service_healthy
+
+  # Test database
+  testdb:
+    image: postgres:13-alpine
+    profiles: ["core", "testing", "database"]
+    environment:
+      - POSTGRES_DB=testdb
+      - POSTGRES_USER=test
+      - POSTGRES_PASSWORD=test
+    volumes:
+      - ./test-data:/docker-entrypoint-initdb.d
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d testdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Test runner
+  test-runner:
+    image: node:16-alpine
+    profiles: ["testing", "ci"]
+    command: |
+      sh -c '
+        npm install
+        npm run test:unit
+        npm run test:integration
+        npm run test:e2e
+      '
+    volumes:
+      - ./:/workspace
+      - /workspace/node_modules
+    environment:
+      - NODE_ENV=test
+      - CI=true
+    networks:
+      - test-network
+    depends_on:
+      - app
+      - testdb
+
+  # Code coverage
+  coverage:
+    image: node:16-alpine
+    profiles: ["testing", "coverage"]
+    command: |
+      sh -c '
+        npm install
+        npm run coverage
+        npm run coverage:report
+      '
+    volumes:
+      - ./:/workspace
+      - coverage-reports:/workspace/coverage
+    networks:
+      - test-network
+
+  # Load testing
+  load-test:
+    image: alpine/bombardier
+    profiles: ["testing", "performance"]
+    command: |
+      sh -c '
+        echo "Waiting for app to be ready..."
+        sleep 10
+        bombardier -c 10 -n 1000 http://app:3000/
+      '
+    networks:
+      - test-network
+    depends_on:
+      - app
+
+volumes:
+  coverage-reports:
+
+networks:
+  test-network:
+    driver: bridge
+# Usage:
+# docker-compose -f testing.yml --profile testing up --abort-on-container-exit
+# docker-compose -f testing.yml --profile coverage up

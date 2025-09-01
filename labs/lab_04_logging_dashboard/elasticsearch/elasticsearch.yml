@@ -1,0 +1,72 @@
+# File Location: labs/lab_04_logging_dashboard/elasticsearch/elasticsearch.yml
+
+# Cluster configuration
+cluster.name: "dockversehub-logging"
+node.name: "elasticsearch-node-1"
+
+# Network configuration
+network.host: 0.0.0.0
+http.port: 9200
+transport.port: 9300
+
+# Discovery configuration (single node for lab)
+discovery.type: single-node
+
+# Security configuration (disabled for development)
+xpack.security.enabled: false
+xpack.security.enrollment.enabled: false
+xpack.security.http.ssl.enabled: false
+xpack.security.transport.ssl.enabled: false
+
+# Monitoring
+xpack.monitoring.collection.enabled: true
+
+# Index management
+action.auto_create_index: true
+action.destructive_requires_name: false
+
+# Memory settings
+bootstrap.memory_lock: false
+
+# Path configuration
+path.data: /usr/share/elasticsearch/data
+path.logs: /usr/share/elasticsearch/logs
+
+# Logging configuration
+logger.root: INFO
+logger.org.elasticsearch.transport: WARN
+logger.org.elasticsearch.discovery: WARN
+
+# Performance tuning for development
+indices.memory.index_buffer_size: 512mb
+indices.memory.min_index_buffer_size: 96mb
+
+# Index template settings
+index.number_of_shards: 1
+index.number_of_replicas: 0
+index.refresh_interval: 5s
+
+# Bulk processing
+thread_pool.bulk.size: 4
+thread_pool.bulk.queue_size: 1000
+
+# Search settings
+indices.queries.cache.size: 256mb
+indices.requests.cache.size: 256mb
+
+# Indexing settings
+index.translog.durability: async
+index.translog.sync_interval: 30s
+index.translog.flush_threshold_size: 1gb
+
+# Cluster settings for development
+cluster.routing.allocation.disk.threshold_enabled: false
+
+# HTTP settings
+http.cors.enabled: true
+http.cors.allow-origin: "*"
+http.cors.allow-headers: "X-Requested-With, Content-Type, Content-Length, Authorization"
+
+# Development optimizations
+index.store.preload: ["nvd", "dvd"]
+index.compound_format: false

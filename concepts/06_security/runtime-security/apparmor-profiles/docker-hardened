@@ -1,0 +1,110 @@
+# File Location: concepts/06_security/runtime-security/apparmor-profiles/docker-hardened
+
+#include <tunables/global>
+
+profile docker-hardened flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  # Strict network restrictions
+  network inet dgram,
+  network inet6 dgram,
+  network inet stream,
+  network inet6 stream,
+  deny network raw,
+  deny network packet,
+
+  # Minimal capabilities
+  capability chown,
+  capability dac_override,
+  capability fowner,
+  capability fsetid,
+  capability kill,
+  capability setgid,
+  capability setuid,
+  capability net_bind_service,
+  
+  # Deny dangerous capabilities
+  deny capability sys_admin,
+  deny capability sys_boot,
+  deny capability sys_module,
+  deny capability sys_rawio,
+  deny capability sys_time,
+  deny capability sys_tty_config,
+  deny capability audit_control,
+  deny capability audit_read,
+  deny capability audit_write,
+  deny capability block_suspend,
+  deny capability mac_admin,
+  deny capability mac_override,
+  deny capability syslog,
+  deny capability wake_alarm,
+
+  # Filesystem restrictions
+  # Allow read access to common directories
+  /usr/bin/** r,
+  /usr/lib/** r,
+  /usr/share/** r,
+  /bin/** r,
+  /lib/** r,
+  /etc/** r,
+  
+  # Application-specific write access
+  /app/** rw,
+  /tmp/** rw,
+  /var/tmp/** rw,
+  /var/log/** w,
+  
+  # Deny sensitive system files
+  deny /boot/** rwklx,
+  deny /proc/sys/** w,
+  deny /sys/kernel/security/** rwklx,
+  deny /sys/firmware/efi/efivars/** rwklx,
+  deny /etc/shadow* rwklx,
+  deny /etc/gshadow* rwklx,
+  deny /etc/passwd w,
+  deny /etc/group w,
+  deny /etc/sudoers* rwklx,
+  deny /etc/ssh/ssh_host_* rwklx,
+  
+  # Device restrictions
+  /dev/null rw,
+  /dev/zero r,
+  /dev/random r,
+  /dev/urandom r,
+  /dev/stdin r,
+  /dev/stdout w,
+  /dev/stderr w,
+  deny /dev/mem rwklx,
+  deny /dev/kmem rwklx,
+  deny /dev/port rwklx,
+  
+  # Process restrictions
+  deny ptrace (trace) peer=**,
+  deny signal (send) peer=**,
+  
+  # Mount restrictions
+  deny mount,
+  deny remount,
+  deny umount,
+  
+  # Execution restrictions
+  /app/bin/** ix,
+  /usr/bin/node ix,
+  /usr/bin/python* ix,
+  /usr/bin/java ix,
+  /bin/sh ix,
+  /bin/bash ix,
+  
+  # Deny dangerous executables
+  deny /bin/su x,
+  deny /usr/bin/sudo x,
+  deny /usr/bin/passwd x,
+  deny /usr/sbin/useradd x,
+  deny /usr/sbin/usermod x,
+  deny /usr/sbin/userdel x,
+  deny /sbin/init x,
+  deny /usr/sbin/service x,
+  deny /usr/bin/systemctl x,
+  deny /usr/bin/docker x,
+  deny /usr/bin/kubectl x,
+}

@@ -1,0 +1,264 @@
+# 09_advanced_tricks/build-optimization/remote-cache.yml
+
+version: "3.8"
+
+services:
+  # Registry for remote cache storage
+  cache-registry:
+    image: registry:2
+    container_name: cache-registry
+    ports:
+      - "5001:5000"
+    environment:
+      - REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY=/var/lib/registry
+      - REGISTRY_HTTP_ADDR=0.0.0.0:5000
+    volumes:
+      - cache_data:/var/lib/registry
+    networks:
+      - build-network
+
+  # BuildKit daemon for distributed builds
+  buildkitd:
+    image: moby/buildkit:buildx-stable-1
+    container_name: buildkitd
+    privileged: true
+    ports:
+      - "1234:1234"
+    command: |
+      --addr unix:///run/buildkit/buildkitd.sock
+      --addr tcp://0.0.0.0:1234
+      --oci-worker-no-process-sandbox
+    volumes:
+      - buildkit_data:/var/lib/buildkit
+    networks:
+      - build-network
+
+  # Redis for build cache metadata
+  redis-cache:
+    image: redis:7-alpine
+    container_name: redis-cache
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - build-network
+
+  # Example application build with remote cache
+  app-builder:
+    image: docker:24-dind
+    container_name: app-builder
+    privileged: true
+    environment:
+      - DOCKER_BUILDKIT=1
+      - BUILDX_EXPERIMENTAL=1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/workspace
+    working_dir: /workspace
+    networks:
+      - build-network
+    command: |
+      sh -c '
+      echo "Setting up remote cache build environment..."
+
+      # Wait for services
+      sleep 10
+
+      # Create buildx builder with remote cache
+      docker buildx create \
+        --name remote-cache-builder \
+        --driver docker-container \
+        --driver-opt network=build-optimization_build-network \
+        --buildkitd-flags "--allow-insecure-entitlement security.insecure" \
+        tcp://buildkitd:1234
+
+      docker buildx use remote-cache-builder
+
+      # Build with remote cache
+      docker buildx build \
+        --platform linux/amd64,linux/arm64 \
+        --cache-from type=registry,ref=cache-registry:5000/myapp:cache \
+        --cache-to type=registry,ref=cache-registry:5000/myapp:cache,mode=max \
+        --tag cache-registry:5000/myapp:latest \
+        --push \
+        .
+      '
+    depends_on:
+      - cache-registry
+      - buildkitd
+      - redis-cache
+
+  # Cache manager for cleanup and monitoring
+  cache-manager:
+    image: alpine:latest
+    container_name: cache-manager
+    volumes:
+      - cache_data:/cache:ro
+    networks:
+      - build-network
+    command: |
+      sh -c '
+      apk add --no-cache curl jq
+
+      while true; do
+        echo "=== Cache Status $(date) ==="
+        
+        # Check cache registry health
+        if curl -sf http://cache-registry:5000/v2/_catalog >/dev/null; then
+          echo "✓ Cache registry healthy"
+          
+          # List cached repositories
+          REPOS=$(curl -sf http://cache-registry:5000/v2/_catalog | jq -r ".repositories[]" 2>/dev/null || echo "none")
+          echo "Cached repositories: $REPOS"
+          
+          # Show cache size
+          CACHE_SIZE=$(du -sh /cache 2>/dev/null | cut -f1 || echo "unknown")
+          echo "Cache size: $CACHE_SIZE"
+        else
+          echo "✗ Cache registry unhealthy"
+        fi
+        
+        # Check buildkit status
+        if nc -z buildkitd 1234 2>/dev/null; then
+          echo "✓ BuildKit daemon healthy"
+        else
+          echo "✗ BuildKit daemon unhealthy"
+        fi
+        
+        # Check Redis cache
+        if nc -z redis-cache 6379 2>/dev/null; then
+          echo "✓ Redis cache healthy"
+        else
+          echo "✗ Redis cache unhealthy"
+        fi
+        
+        echo "=========================="
+        sleep 60
+      done
+      '
+    depends_on:
+      - cache-registry
+      - buildkitd
+      - redis-cache
+
+  # Example CI/CD build service
+  ci-builder:
+    image: docker:24-dind
+    container_name: ci-builder
+    privileged: true
+    environment:
+      - DOCKER_BUILDKIT=1
+      - CACHE_REGISTRY=cache-registry:5000
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./examples:/workspace
+    working_dir: /workspace
+    networks:
+      - build-network
+    profiles:
+      - ci
+    command: |
+      sh -c '
+      # CI/CD Build Script with Remote Cache
+
+      echo "Starting CI build with remote cache..."
+
+      # Configure buildx for CI
+      docker buildx create --name ci-builder --use
+
+      # Build stages with different cache strategies
+
+      # 1. Build with inline cache (fastest for CI)
+      echo "Building with inline cache..."
+      docker buildx build \
+        --cache-from type=registry,ref=$CACHE_REGISTRY/app:cache \
+        --cache-to type=inline \
+        --tag $CACHE_REGISTRY/app:pr-123 \
+        --push \
+        .
+
+      # 2. Build with registry cache (shared across builds)
+      echo "Building with registry cache..."
+      docker buildx build \
+        --cache-from type=registry,ref=$CACHE_REGISTRY/app:cache \
+        --cache-to type=registry,ref=$CACHE_REGISTRY/app:cache,mode=max \
+        --tag $CACHE_REGISTRY/app:latest \
+        --push \
+        .
+
+      # 3. Build with local cache export
+      echo "Building with local cache export..."
+      docker buildx build \
+        --cache-from type=registry,ref=$CACHE_REGISTRY/app:cache \
+        --cache-to type=local,dest=/tmp/cache \
+        --tag $CACHE_REGISTRY/app:local \
+        .
+
+      echo "CI build completed successfully"
+      '
+
+networks:
+  build-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  cache_data:
+    driver: local
+  buildkit_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# Build configuration examples
+x-cache-config:
+  # Registry cache (recommended for CI/CD)
+  registry-cache: &registry-cache
+    cache-from: type=registry,ref=myregistry.com/myapp:cache
+    cache-to: type=registry,ref=myregistry.com/myapp:cache,mode=max
+
+  # Inline cache (fastest for single builds)
+  inline-cache: &inline-cache
+    cache-from: type=registry,ref=myregistry.com/myapp:latest
+    cache-to: type=inline
+
+  # Local cache (good for development)
+  local-cache: &local-cache
+    cache-from: type=local,src=/tmp/buildx-cache
+    cache-to: type=local,dest=/tmp/buildx-cache,mode=max
+
+  # S3 cache (for distributed teams)
+  s3-cache: &s3-cache
+    cache-from: type=s3,region=us-east-1,bucket=buildx-cache
+    cache-to: type=s3,region=us-east-1,bucket=buildx-cache,mode=max
+
+  # GitHub Actions cache
+  gha-cache: &gha-cache
+    cache-from: type=gha
+    cache-to: type=gha,mode=max
+# Usage examples:
+#
+# Start remote cache infrastructure:
+# docker-compose -f remote-cache.yml up -d
+#
+# Build with remote cache:
+# docker buildx build \
+#   --cache-from type=registry,ref=localhost:5001/myapp:cache \
+#   --cache-to type=registry,ref=localhost:5001/myapp:cache,mode=max \
+#   --tag localhost:5001/myapp:latest \
+#   --push .
+#
+# Multi-platform build with cache:
+# docker buildx build \
+#   --platform linux/amd64,linux/arm64 \
+#   --cache-from type=registry,ref=localhost:5001/myapp:cache \
+#   --cache-to type=registry,ref=localhost:5001/myapp:cache,mode=max \
+#   --tag localhost:5001/myapp:latest \
+#   --push .
+#
+# CI/CD profile:
+# docker-compose -f remote-cache.yml --profile ci up ci-builder

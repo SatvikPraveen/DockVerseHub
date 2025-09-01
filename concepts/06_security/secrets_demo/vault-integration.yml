@@ -1,0 +1,63 @@
+# File Location: concepts/06_security/secrets_demo/vault-integration.yml
+
+version: "3.8"
+
+services:
+  # Vault server for secret management
+  vault:
+    image: vault:latest
+    container_name: vault-server
+    ports:
+      - "8200:8200"
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=myroot
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+    cap_add:
+      - IPC_LOCK
+    networks:
+      - vault-network
+
+  # Vault agent for secret injection
+  vault-agent:
+    image: vault:latest
+    container_name: vault-agent
+    command: |
+      sh -c '
+        export VAULT_ADDR=http://vault:8200
+        export VAULT_TOKEN=myroot
+        
+        # Enable secret engine
+        vault secrets enable -path=secret kv-v2
+        
+        # Store secrets
+        vault kv put secret/myapp \
+          db_password=vault-managed-db-password \
+          api_key=vault-managed-api-key \
+          jwt_secret=vault-generated-jwt-secret
+        
+        echo "Secrets stored in Vault"
+        sleep infinity
+      '
+    depends_on:
+      - vault
+    networks:
+      - vault-network
+
+  # Application using Vault secrets
+  vault-app:
+    build: .
+    environment:
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_TOKEN=myroot
+      - USE_VAULT=true
+    ports:
+      - "5000:5000"
+    depends_on:
+      - vault
+      - vault-agent
+    networks:
+      - vault-network
+
+networks:
+  vault-network:
+    driver: bridge

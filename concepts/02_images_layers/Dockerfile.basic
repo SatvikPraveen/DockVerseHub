@@ -1,0 +1,60 @@
+# File Location: concepts/02_images_layers/Dockerfile.basic
+# Naive build example - demonstrates common inefficiencies
+
+FROM ubuntu:20.04
+
+# Install build dependencies and runtime dependencies together
+RUN apt-get update
+RUN apt-get install -y build-essential
+RUN apt-get install -y python3
+RUN apt-get install -y python3-pip
+RUN apt-get install -y git
+RUN apt-get install -y curl
+RUN apt-get install -y wget
+RUN apt-get install -y vim
+RUN apt-get install -y nano
+
+# Copy entire project (including build artifacts, node_modules, etc.)
+COPY . /app
+
+# Set working directory
+WORKDIR /app
+
+# Install Python dependencies
+RUN pip3 install requests
+RUN pip3 install flask
+RUN pip3 install pandas
+RUN pip3 install numpy
+
+# Create some unnecessary files during build
+RUN echo "This is a build log" > /tmp/build.log
+RUN wget https://httpbin.org/json -O /tmp/sample.json
+
+# Install development tools that won't be needed in production
+RUN apt-get install -y gdb
+RUN apt-get install -y strace
+RUN apt-get install -y tcpdump
+
+# Create application user (but still run as root later)
+RUN useradd -m appuser
+
+# Create a simple Python application
+RUN echo 'from flask import Flask\napp = Flask(__name__)\n@app.route("/")\ndef hello():\n    return "Hello from inefficient container!"\nif __name__ == "__main__":\n    app.run(host="0.0.0.0", port=5000)' > /app/app.py
+
+# Expose port
+EXPOSE 5000
+
+# Run as root (security issue)
+CMD ["python3", "/app/app.py"]
+
+# Issues with this Dockerfile:
+# 1. Multiple RUN commands create unnecessary layers
+# 2. No cleanup of package manager caches
+# 3. Installs build tools that aren't needed at runtime
+# 4. Copies entire context including build artifacts
+# 5. Runs as root user
+# 6. Downloads unnecessary files
+# 7. No .dockerignore usage
+# 8. Large base image (Ubuntu vs Alpine)
+# 9. No multi-stage build for separation
+# 10. No health check or proper logging

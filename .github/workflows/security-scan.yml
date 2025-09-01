@@ -1,0 +1,366 @@
+# File: .github/workflows/security-scan.yml
+name: Security Vulnerability Scanning
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run security scan daily at 2 AM UTC
+    - cron: "0 2 * * *"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  trivy-repo-scan:
+    name: Trivy Repository Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Trivy vulnerability scanner (Repository)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "sarif"
+          output: "trivy-results.sarif"
+
+      - name: Upload Trivy scan results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: "trivy-results.sarif"
+
+      - name: Run Trivy vulnerability scanner (Table format)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "table"
+          output: "trivy-report.txt"
+
+      - name: Upload Trivy report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: trivy-repository-report
+          path: trivy-report.txt
+          retention-days: 30
+
+  trivy-image-scan:
+    name: Trivy Container Image Scan
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dockerfile:
+          - concepts/01_getting_started/Dockerfile
+          - concepts/02_images_layers/Dockerfile.optimized
+          - labs/lab_01_simple_app/Dockerfile
+          - .devcontainer/Dockerfile
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image for scanning
+        run: |
+          dockerfile_path=${{ matrix.dockerfile }}
+          context_dir=$(dirname $dockerfile_path)
+          image_tag="security-scan:$(echo $dockerfile_path | tr '/' '-')"
+
+          echo "Building $dockerfile_path in context $context_dir"
+          docker build -t $image_tag -f $dockerfile_path $context_dir
+
+      - name: Run Trivy vulnerability scanner (Image)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "security-scan:${{ matrix.dockerfile }}"
+          format: "sarif"
+          output: "trivy-image-results.sarif"
+
+      - name: Upload image scan results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: "trivy-image-results.sarif"
+
+      - name: Generate detailed image report
+        run: |
+          dockerfile_path=${{ matrix.dockerfile }}
+          image_tag="security-scan:$(echo $dockerfile_path | tr '/' '-')"
+
+          echo "# Security Scan Report: $dockerfile_path" > image-security-report.md
+          echo "Generated: $(date)" >> image-security-report.md
+          echo "" >> image-security-report.md
+
+          # Run comprehensive scan
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image --format table $image_tag >> image-security-report.md || true
+
+      - name: Upload detailed report
+        uses: actions/upload-artifact@v3
+        with:
+          name: image-security-report-${{ matrix.dockerfile }}
+          path: image-security-report.md
+          retention-days: 30
+
+  secret-scan:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog OSS Secret Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: main
+          head: HEAD
+          extra_args: --debug --only-verified
+
+      - name: Manual Secret Pattern Check
+        run: |
+          echo "# Manual Secret Detection Report" > secret-report.md
+          echo "Generated: $(date)" >> secret-report.md
+          echo "" >> secret-report.md
+
+          echo "## Checking for common secret patterns..." >> secret-report.md
+
+          # Check for API keys
+          echo "### API Key Patterns" >> secret-report.md
+          if find . -type f -name "*.py" -o -name "*.js" -o -name "*.yml" -o -name "*.yaml" -o -name "*.env" | \
+             xargs grep -l -E "(api[_-]?key|apikey)" | grep -v ".git" | head -10; then
+            echo "⚠️ Potential API key references found" >> secret-report.md
+          else
+            echo "✅ No obvious API key patterns found" >> secret-report.md
+          fi
+
+          # Check for passwords
+          echo "### Password Patterns" >> secret-report.md
+          if find . -type f -name "*.py" -o -name "*.js" -o -name "*.yml" -o -name "*.yaml" | \
+             xargs grep -l -E "password\s*=\s*['\"][^'\"]{8,}" | grep -v ".git" | grep -v "example" | head -10; then
+            echo "🔴 Potential hardcoded passwords found" >> secret-report.md
+          else
+            echo "✅ No hardcoded password patterns found" >> secret-report.md
+          fi
+
+          # Check for private keys
+          echo "### Private Key Patterns" >> secret-report.md
+          if find . -name "*.key" -o -name "*.pem" -o -name "*_rsa" | grep -v ".git" | head -10; then
+            echo "🔴 Private key files found" >> secret-report.md
+          else
+            echo "✅ No private key files found" >> secret-report.md
+          fi
+
+          # Check for database URLs
+          echo "### Database Connection Strings" >> secret-report.md
+          if find . -type f -name "*.py" -o -name "*.js" -o -name "*.yml" -o -name "*.yaml" | \
+             xargs grep -l -E "(mongodb://|postgres://|mysql://)" | grep -v ".git" | grep -v "example" | head -10; then
+            echo "⚠️ Database connection strings found" >> secret-report.md
+          else
+            echo "✅ No database connection strings found" >> secret-report.md
+          fi
+
+      - name: Upload secret report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: secret-detection-report
+          path: secret-report.md
+          retention-days: 30
+
+  dependency-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install Safety
+        run: pip install safety
+
+      - name: Scan Python dependencies
+        run: |
+          echo "# Dependency Vulnerability Report" > dependency-report.md
+          echo "Generated: $(date)" >> dependency-report.md
+          echo "" >> dependency-report.md
+
+          echo "## Python Dependencies" >> dependency-report.md
+          if [ -f "requirements.txt" ]; then
+            echo "### Safety Scan Results" >> dependency-report.md
+            safety check -r requirements.txt --output text >> dependency-report.md || true
+          else
+            echo "No requirements.txt found" >> dependency-report.md
+          fi
+
+          # Check for requirements files in subdirectories
+          find . -name "requirements*.txt" -not -path "./.git/*" | while read req_file; do
+            echo "" >> dependency-report.md
+            echo "### Scanning: $req_file" >> dependency-report.md
+            safety check -r "$req_file" --output text >> dependency-report.md || true
+          done
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Scan Node.js dependencies
+        run: |
+          echo "" >> dependency-report.md
+          echo "## Node.js Dependencies" >> dependency-report.md
+
+          find . -name "package.json" -not -path "./.git/*" -not -path "./node_modules/*" | while read package_file; do
+            dir=$(dirname "$package_file")
+            echo "### Scanning: $package_file" >> dependency-report.md
+            cd "$dir"
+            if command -v npm &> /dev/null; then
+              npm audit --audit-level moderate >> dependency-report.md 2>&1 || true
+            fi
+            cd - > /dev/null
+          done
+
+      - name: Upload dependency report
+        uses: actions/upload-artifact@v3
+        with:
+          name: dependency-vulnerability-report
+          path: dependency-report.md
+          retention-days: 30
+
+  configuration-scan:
+    name: Configuration Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install security tools
+        run: |
+          # Install checkov for infrastructure as code scanning
+          pip install checkov
+
+      - name: Scan Docker configurations
+        run: |
+          echo "# Configuration Security Report" > config-report.md
+          echo "Generated: $(date)" >> config-report.md
+          echo "" >> config-report.md
+
+          echo "## Docker Compose Security Check" >> config-report.md
+          find . -name "docker-compose*.yml" -not -path "./.git/*" | while read compose_file; do
+            echo "### Scanning: $compose_file" >> config-report.md
+            
+            # Check for security issues in compose files
+            if grep -q "privileged: true" "$compose_file"; then
+              echo "🔴 CRITICAL: Privileged mode detected" >> config-report.md
+            fi
+            
+            if grep -q "network_mode:.*host" "$compose_file"; then
+              echo "🟡 WARNING: Host network mode detected" >> config-report.md
+            fi
+            
+            if grep -q "/var/run/docker.sock" "$compose_file"; then
+              echo "🟡 WARNING: Docker socket mounted (Docker-in-Docker)" >> config-report.md
+            fi
+            
+            if grep -q "user: root\|user: \"root\"\|user: 0" "$compose_file"; then
+              echo "🟡 WARNING: Running as root user" >> config-report.md
+            fi
+            
+            echo "✅ Basic checks completed for $compose_file" >> config-report.md
+            echo "" >> config-report.md
+          done
+
+          echo "## Dockerfile Security Configuration" >> config-report.md
+          find . -name "Dockerfile*" -not -path "./.git/*" | head -10 | while read dockerfile; do
+            echo "### Scanning: $dockerfile" >> config-report.md
+            
+            # Check for security misconfigurations
+            if ! grep -q "USER " "$dockerfile"; then
+              echo "🔴 CRITICAL: No USER instruction (runs as root)" >> config-report.md
+            fi
+            
+            if grep -q "COPY \*" "$dockerfile"; then
+              echo "🟡 WARNING: Wildcard COPY may include sensitive files" >> config-report.md
+            fi
+            
+            if grep -q "ADD.*http" "$dockerfile"; then
+              echo "🟡 WARNING: ADD with URL (use RUN curl instead)" >> config-report.md
+            fi
+            
+            echo "" >> config-report.md
+          done
+
+      - name: Upload configuration report
+        uses: actions/upload-artifact@v3
+        with:
+          name: configuration-security-report
+          path: config-report.md
+          retention-days: 30
+
+  generate-security-summary:
+    name: Generate Security Summary
+    runs-on: ubuntu-latest
+    needs:
+      [
+        trivy-repo-scan,
+        trivy-image-scan,
+        secret-scan,
+        dependency-scan,
+        configuration-scan,
+      ]
+    if: always()
+    steps:
+      - name: Generate comprehensive security summary
+        run: |
+          echo "# 🔒 Security Scan Summary Report" > security-summary.md
+          echo "Generated: $(date)" >> security-summary.md
+          echo "" >> security-summary.md
+
+          echo "## 📊 Scan Results Overview" >> security-summary.md
+          echo "| Scan Type | Status |" >> security-summary.md
+          echo "|-----------|--------|" >> security-summary.md
+          echo "| Repository Scan | ${{ needs.trivy-repo-scan.result }} |" >> security-summary.md
+          echo "| Image Scan | ${{ needs.trivy-image-scan.result }} |" >> security-summary.md
+          echo "| Secret Detection | ${{ needs.secret-scan.result }} |" >> security-summary.md
+          echo "| Dependency Scan | ${{ needs.dependency-scan.result }} |" >> security-summary.md
+          echo "| Configuration Scan | ${{ needs.configuration-scan.result }} |" >> security-summary.md
+          echo "" >> security-summary.md
+
+          echo "## 🎯 Priority Actions" >> security-summary.md
+          echo "1. **Review Critical Vulnerabilities**: Check Trivy reports for HIGH/CRITICAL issues" >> security-summary.md
+          echo "2. **Verify No Secrets**: Ensure no hardcoded secrets in codebase" >> security-summary.md
+          echo "3. **Update Dependencies**: Review and update vulnerable dependencies" >> security-summary.md
+          echo "4. **Harden Configurations**: Apply security best practices to Docker configs" >> security-summary.md
+          echo "" >> security-summary.md
+
+          echo "## 📋 Security Checklist" >> security-summary.md
+          echo "- [ ] All HIGH/CRITICAL vulnerabilities addressed" >> security-summary.md
+          echo "- [ ] No secrets detected in repository" >> security-summary.md
+          echo "- [ ] Dependencies are up to date" >> security-summary.md
+          echo "- [ ] Containers run as non-root users" >> security-summary.md
+          echo "- [ ] Docker configurations follow security best practices" >> security-summary.md
+          echo "- [ ] All security reports reviewed" >> security-summary.md
+
+      - name: Upload security summary
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-scan-summary
+          path: security-summary.md
+          retention-days: 90

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<!-- Location: labs/lab_06_production_deployment/nginx/static/index.html -->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Production Microservices Platform" />
+    <title>Microservices Platform</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="icon" type="image/x-icon" href="favicon.ico" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="container">
+        <h1 class="logo">🐋 Microservices Platform</h1>
+        <nav class="nav">
+          <a href="#services" class="nav-link">Services</a>
+          <a href="#monitoring" class="nav-link">Monitoring</a>
+          <a href="#docs" class="nav-link">Documentation</a>
+          <a href="/health" class="nav-link status">Status</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="hero">
+        <div class="container">
+          <h2 class="hero-title">Production-Ready Microservices</h2>
+          <p class="hero-description">
+            Scalable, secure, and monitored microservices architecture with
+            Docker containers
+          </p>
+          <div class="hero-actions">
+            <a href="/api/v1/users/docs" class="btn btn-primary"
+              >API Documentation</a
+            >
+            <a href="/grafana" class="btn btn-secondary"
+              >Monitoring Dashboard</a
+            >
+          </div>
+        </div>
+      </section>
+
+      <section id="services" class="services">
+        <div class="container">
+          <h3 class="section-title">Available Services</h3>
+          <div class="services-grid">
+            <div class="service-card">
+              <div class="service-icon">👥</div>
+              <h4 class="service-name">User Service</h4>
+              <p class="service-description">
+                User authentication, registration, and profile management
+              </p>
+              <div class="service-links">
+                <a href="/api/v1/users/health" class="service-link">Health</a>
+                <a href="/api/v1/users/docs" class="service-link">API Docs</a>
+              </div>
+            </div>
+
+            <div class="service-card">
+              <div class="service-icon">🛒</div>
+              <h4 class="service-name">Order Service</h4>
+              <p class="service-description">
+                Order processing, inventory, and transaction management
+              </p>
+              <div class="service-links">
+                <a href="/api/v1/orders/health" class="service-link">Health</a>
+                <a href="/api/v1/orders/docs" class="service-link">API Docs</a>
+              </div>
+            </div>
+
+            <div class="service-card">
+              <div class="service-icon">📧</div>
+              <h4 class="service-name">Notification Service</h4>
+              <p class="service-description">
+                Email, SMS, and push notification delivery
+              </p>
+              <div class="service-links">
+                <a href="/api/v1/notifications/health" class="service-link"
+                  >Health</a
+                >
+                <a href="/api/v1/notifications/docs" class="service-link"
+                  >API Docs</a
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="monitoring" class="monitoring">
+        <div class="container">
+          <h3 class="section-title">Monitoring & Observability</h3>
+          <div class="monitoring-grid">
+            <a href="/grafana" class="monitoring-card">
+              <div class="monitoring-icon">📊</div>
+              <h4>Grafana Dashboards</h4>
+              <p>Real-time metrics and performance monitoring</p>
+            </a>
+
+            <a href="/prometheus" class="monitoring-card">
+              <div class="monitoring-icon">⚡</div>
+              <h4>Prometheus Metrics</h4>
+              <p>Time-series metrics collection and alerting</p>
+            </a>
+
+            <a href="http://localhost:16686" class="monitoring-card">
+              <div class="monitoring-icon">🔍</div>
+              <h4>Jaeger Tracing</h4>
+              <p>Distributed request tracing and debugging</p>
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section class="system-info">
+        <div class="container">
+          <h3 class="section-title">System Information</h3>
+          <div class="info-grid">
+            <div class="info-item">
+              <strong>Version:</strong>
+              <span id="version">1.0.0</span>
+            </div>
+            <div class="info-item">
+              <strong>Environment:</strong>
+              <span id="environment">Production</span>
+            </div>
+            <div class="info-item">
+              <strong>Uptime:</strong>
+              <span id="uptime">Loading...</span>
+            </div>
+            <div class="info-item">
+              <strong>Health Status:</strong>
+              <span id="health-status" class="status-loading">Checking...</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container">
+        <p>&copy; 2024 Microservices Platform. Built with Docker & Love.</p>
+        <div class="footer-links">
+          <a href="#" class="footer-link">Privacy Policy</a>
+          <a href="#" class="footer-link">Terms of Service</a>
+          <a
+            href="https://github.com/your-org/microservices-platform"
+            class="footer-link"
+            >GitHub</a
+          >
+        </div>
+      </div>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>

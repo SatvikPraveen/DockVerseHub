@@ -1,0 +1,500 @@
+# 08_orchestration/service-mesh/linkerd-demo.yml
+
+version: '3.8'
+
+services:
+  # Linkerd control plane components
+  linkerd-controller:
+    image: cr.l5d.io/linkerd/controller:stable-2.14.1
+    ports:
+      - "8084:8084"
+    networks:
+      - linkerd-control
+      - app-network
+    environment:
+      - LINKERD2_PROXY_LOG=info,linkerd=debug
+      - LINKERD2_PROXY_DESTINATION_SVC_ADDR=linkerd-destination.linkerd.svc.cluster.local:8086
+      - LINKERD2_PROXY_CONTROL_LISTEN_ADDR=0.0.0.0:4190
+      - LINKERD2_PROXY_ADMIN_LISTEN_ADDR=0.0.0.0:4191
+      - LINKERD2_PROXY_OUTBOUND_LISTEN_ADDR=127.0.0.1:4140
+      - LINKERD2_PROXY_INBOUND_LISTEN_ADDR=127.0.0.1:4143
+      - LINKERD2_PROXY_DESTINATION_PROFILE_SUFFIXES=svc.cluster.local.
+    volumes:
+      - linkerd-config:/var/lib/linkerd2
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    command: |
+      /usr/local/bin/linkerd2-controller
+      -log-level=info
+      -controller-namespace=linkerd
+      -identity-trust-domain=cluster.local
+
+  # Linkerd destination service
+  linkerd-destination:
+    image: cr.l5d.io/linkerd/controller:stable-2.14.1
+    networks:
+      - linkerd-control
+    environment:
+      - LINKERD2_PROXY_LOG=info,linkerd=debug
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    command: |
+      /usr/local/bin/destination
+      -addr=0.0.0.0:8086
+      -controller-namespace=linkerd
+      -enable-h2-upgrade=true
+      -log-level=info
+
+  # Linkerd proxy injector
+  linkerd-proxy-injector:
+    image: cr.l5d.io/linkerd/proxy-injector:stable-2.14.1
+    networks:
+      - linkerd-control
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    command: |
+      /usr/local/bin/proxy-injector
+      -log-level=info
+      -controller-namespace=linkerd
+      -tls-cert-file=/var/run/linkerd/tls/tls.crt
+      -tls-private-key-file=/var/run/linkerd/tls/tls.key
+
+  # Frontend service with Linkerd proxy
+  frontend:
+    image: nginx:alpine
+    networks:
+      - app-network
+      - linkerd-data
+    configs:
+      - source: frontend-nginx-config
+        target: /etc/nginx/nginx.conf
+    deploy:
+      replicas: 3
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+      labels:
+        - "linkerd.io/inject=enabled"
+        - "linkerd.io/proxy-version=stable-2.14.1"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend Linkerd proxy sidecar
+  frontend-proxy:
+    image: cr.l5d.io/linkerd/proxy:stable-2.14.1
+    networks:
+      - app-network
+      - linkerd-data
+    environment:
+      - LINKERD2_PROXY_LOG=info,linkerd=debug
+      - LINKERD2_PROXY_DESTINATION_SVC_ADDR=linkerd-destination:8086
+      - LINKERD2_PROXY_CONTROL_LISTEN_ADDR=0.0.0.0:4190
+      - LINKERD2_PROXY_ADMIN_LISTEN_ADDR=0.0.0.0:4191
+      - LINKERD2_PROXY_OUTBOUND_LISTEN_ADDR=127.0.0.1:4140
+      - LINKERD2_PROXY_INBOUND_LISTEN_ADDR=127.0.0.1:4143
+      - LINKERD2_PROXY_DESTINATION_PROFILE_SUFFIXES=svc.cluster.local.
+      - LINKERD2_PROXY_IDENTITY_DIR=/var/run/linkerd/identity
+      - LINKERD2_PROXY_IDENTITY_TRUST_ANCHORS=/var/run/linkerd/identity/trust-anchors.pem
+    deploy:
+      replicas: 3
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    depends_on:
+      - linkerd-destination
+      - frontend
+
+  # Backend API service
+  backend-api:
+    image: python:3.11-alpine
+    networks:
+      - app-network
+      - backend-network
+      - linkerd-data
+    environment:
+      - DATABASE_URL=postgresql://user:pass@database:5432/appdb
+      - REDIS_URL=redis://cache:6379/0
+    command: |
+      sh -c 'pip install flask redis psycopg2-binary &&
+             cat > /app.py << "EOF"
+from flask import Flask, jsonify, request
+import redis
+import os
+import time
+import random
+
+app = Flask(__name__)
+redis_client = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://cache:6379/0"))
+
+@app.route("/health")
+def health():
+    return jsonify({
+        "status": "healthy",
+        "service": "backend-api",
+        "linkerd_injected": True
+    })
+
+@app.route("/api/data")
+def get_data():
+    # Simulate some processing time
+    time.sleep(random.uniform(0.1, 0.5))
+    
+    return jsonify({
+        "data": [{"id": i, "value": f"item-{i}"} for i in range(10)],
+        "timestamp": time.time(),
+        "service": "backend-api"
+    })
+
+@app.route("/api/slow")
+def slow_endpoint():
+    # Simulate slow endpoint for testing traffic policies
+    time.sleep(2)
+    return jsonify({"message": "This was a slow response"})
+
+@app.route("/api/error")
+def error_endpoint():
+    # Simulate errors for circuit breaker testing
+    if random.random() < 0.3:  # 30% error rate
+        return jsonify({"error": "Simulated error"}), 500
+    return jsonify({"message": "Success"})
+
+@app.route("/api/cache/<key>")
+def cache_get(key):
+    value = redis_client.get(key)
+    if value:
+        return jsonify({"key": key, "value": value.decode(), "cached": True})
+    
+    # Simulate database lookup
+    time.sleep(0.2)
+    value = f"generated-value-{key}-{int(time.time())}"
+    redis_client.setex(key, 300, value)
+    
+    return jsonify({"key": key, "value": value, "cached": False})
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080, debug=False)
+EOF
+             python /app.py'
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+      labels:
+        - "linkerd.io/inject=enabled"
+        - "linkerd.io/proxy-version=stable-2.14.1"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backend API Linkerd proxy
+  backend-api-proxy:
+    image: cr.l5d.io/linkerd/proxy:stable-2.14.1
+    networks:
+      - app-network
+      - backend-network
+      - linkerd-data
+    environment:
+      - LINKERD2_PROXY_LOG=info,linkerd=debug
+      - LINKERD2_PROXY_DESTINATION_SVC_ADDR=linkerd-destination:8086
+      - LINKERD2_PROXY_CONTROL_LISTEN_ADDR=0.0.0.0:4190
+      - LINKERD2_PROXY_ADMIN_LISTEN_ADDR=0.0.0.0:4191
+      - LINKERD2_PROXY_OUTBOUND_LISTEN_ADDR=127.0.0.1:4140
+      - LINKERD2_PROXY_INBOUND_LISTEN_ADDR=127.0.0.1:4143
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    depends_on:
+      - linkerd-destination
+      - backend-api
+
+  # Cache service
+  cache:
+    image: redis:7-alpine
+    networks:
+      - backend-network
+      - linkerd-data
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - cache-data:/data
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+      labels:
+        - "linkerd.io/inject=enabled"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Database service
+  database:
+    image: postgres:15-alpine
+    networks:
+      - backend-network
+      - linkerd-data
+    environment:
+      - POSTGRES_DB=appdb
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=secret123
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+      labels:
+        - "linkerd.io/inject=enabled"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d appdb"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Linkerd web dashboard
+  linkerd-web:
+    image: cr.l5d.io/linkerd/web:stable-2.14.1
+    ports:
+      - "8084:8084"
+    networks:
+      - linkerd-control
+    environment:
+      - LINKERD_WEB_STATIC_DIR=/usr/local/bin/web
+      - LINKERD_WEB_TEMPLATE_DIR=/usr/local/bin/web/templates
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    command: |
+      /usr/local/bin/web
+      -addr=0.0.0.0:8084
+      -controller-addr=linkerd-controller:8085
+      -log-level=info
+      -static-dir=/usr/local/bin/web
+      -template-dir=/usr/local/bin/web/templates
+    depends_on:
+      - linkerd-controller
+
+  # Prometheus for Linkerd metrics
+  linkerd-prometheus:
+    image: prom/prometheus:v2.47.0
+    ports:
+      - "9090:9090"
+    networks:
+      - linkerd-control
+      - monitoring-network
+    configs:
+      - source: prometheus-linkerd-config
+        target: /etc/prometheus/prometheus.yml
+    volumes:
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=24h'
+      - '--web.enable-lifecycle'
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+  # Grafana for Linkerd observability
+  linkerd-grafana:
+    image: grafana/grafana:10.1.0
+    ports:
+      - "3000:3000"
+    networks:
+      - linkerd-control
+      - monitoring-network
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+    configs:
+      - source: grafana-linkerd-config
+        target: /etc/grafana/provisioning/datasources/prometheus.yaml
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    depends_on:
+      - linkerd-prometheus
+
+  # Traffic generator for testing
+  traffic-generator:
+    image: alpine:latest
+    networks:
+      - app-network
+    command: |
+      sh -c 'apk add --no-cache curl &&
+             while true; do
+               echo "Generating traffic..."
+               for i in $(seq 1 10); do
+                 curl -s http://frontend/health > /dev/null
+                 curl -s http://backend-api:8080/api/data > /dev/null
+                 curl -s http://backend-api:8080/api/cache/key$i > /dev/null
+                 sleep 1
+               done
+               # Generate some slow requests
+               curl -s http://backend-api:8080/api/slow > /dev/null
+               # Generate some errors
+               curl -s http://backend-api:8080/api/error > /dev/null
+               sleep 30
+             done'
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
+    depends_on:
+      - frontend
+      - backend-api
+
+networks:
+  linkerd-control:
+    driver: overlay
+    
+  linkerd-data:
+    driver: overlay
+    
+  app-network:
+    driver: overlay
+    attachable: true
+    
+  backend-network:
+    driver: overlay
+    driver_opts:
+      encrypted: "true"
+      
+  monitoring-network:
+    driver: overlay
+
+volumes:
+  linkerd-config:
+    driver: local
+    
+  cache-data:
+    driver: local
+    
+  db-data:
+    driver: local
+    
+  prometheus-data:
+    driver: local
+    
+  grafana-data:
+    driver: local
+
+configs:
+  frontend-nginx-config:
+    external: true
+    
+  prometheus-linkerd-config:
+    external: true
+    
+  grafana-linkerd-config:
+    external: true

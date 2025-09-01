@@ -1,0 +1,38 @@
+[
+  {
+    "_comment": "File Location: labs/lab_04_logging_dashboard/prometheus/targets/services.json",
+    "targets": ["log_app:8080", "log_app:8081"],
+    "labels": {
+      "job": "log_app",
+      "env": "development"
+    }
+  },
+  {
+    "targets": ["elasticsearch:9200"],
+    "labels": {
+      "job": "elasticsearch",
+      "env": "development"
+    }
+  },
+  {
+    "targets": ["kibana:5601"],
+    "labels": {
+      "job": "kibana",
+      "env": "development"
+    }
+  },
+  {
+    "targets": ["logstash:9600"],
+    "labels": {
+      "job": "logstash",
+      "env": "development"
+    }
+  },
+  {
+    "targets": ["grafana:3000"],
+    "labels": {
+      "job": "grafana",
+      "env": "development"
+    }
+  }
+]

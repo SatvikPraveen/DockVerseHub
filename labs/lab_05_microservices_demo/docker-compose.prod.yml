@@ -1,0 +1,335 @@
+# File Location: labs/lab_05_microservices_demo/docker-compose.prod.yml
+
+version: "3.8"
+
+services:
+  # API Gateway - Production Configuration
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+      target: production
+    container_name: api-gateway-prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./api-gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./api-gateway/ssl:/etc/nginx/ssl:ro
+      - nginx_cache:/var/cache/nginx
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      - user-service
+      - order-service
+      - notification-service
+    networks:
+      - frontend
+      - backend
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # User Service - Production
+  user-service:
+    build:
+      context: ./user-service
+      dockerfile: Dockerfile
+      target: production
+    environment:
+      - DATABASE_URL=postgresql://user:${USER_DB_PASSWORD}@user-db:5432/users
+      - REDIS_URL=redis://redis:6379/0
+      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - FLASK_ENV=production
+    depends_on:
+      - user-db
+      - redis
+    networks:
+      - backend
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Order Service - Production
+  order-service:
+    build:
+      context: ./order-service
+      dockerfile: Dockerfile
+      target: production
+    environment:
+      - DATABASE_URL=postgresql://order:${ORDER_DB_PASSWORD}@order-db:5432/orders
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - GO_ENV=production
+    depends_on:
+      - order-db
+      - rabbitmq
+    networks:
+      - backend
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8080/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Notification Service - Production
+  notification-service:
+    build:
+      context: ./notification-service
+      dockerfile: Dockerfile
+      target: production
+    environment:
+      - MONGODB_URL=mongodb://notification-db:27017/notifications
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - KAFKA_BROKERS=kafka:9092
+      - NODE_ENV=production
+    depends_on:
+      - notification-db
+      - rabbitmq
+      - kafka
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+
+  # Production Databases
+  user-db:
+    image: postgres:15-alpine
+    container_name: user-db-prod
+    environment:
+      - POSTGRES_DB=users
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=${USER_DB_PASSWORD}
+    volumes:
+      - user_db_data_prod:/var/lib/postgresql/data
+      - ./database/postgres/init-user-db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - backend
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+
+  order-db:
+    image: postgres:15-alpine
+    container_name: order-db-prod
+    environment:
+      - POSTGRES_DB=orders
+      - POSTGRES_USER=order
+      - POSTGRES_PASSWORD=${ORDER_DB_PASSWORD}
+    volumes:
+      - order_db_data_prod:/var/lib/postgresql/data
+      - ./database/postgres/init-order-db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - backend
+    restart: always
+
+  notification-db:
+    image: mongo:6-focal
+    container_name: notification-db-prod
+    environment:
+      - MONGO_INITDB_DATABASE=notifications
+    volumes:
+      - notification_db_data_prod:/data/db
+      - ./database/mongodb/init-notification-db.js:/docker-entrypoint-initdb.d/init.js
+    networks:
+      - backend
+    restart: always
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: redis-prod
+    command: redis-server /usr/local/etc/redis/redis.conf --appendonly yes
+    volumes:
+      - redis_data_prod:/data
+      - ./database/redis/redis.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - backend
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+
+  # Message Queues
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: rabbitmq-prod
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq_data_prod:/var/lib/rabbitmq
+      - ./message-queue/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
+    ports:
+      - "15672:15672"
+    networks:
+      - backend
+    restart: always
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka-prod
+    environment:
+      - KAFKA_BROKER_ID=1
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+    depends_on:
+      - zookeeper
+    volumes:
+      - kafka_data_prod:/var/lib/kafka/data
+    networks:
+      - backend
+    restart: always
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: zookeeper-prod
+    environment:
+      - ZOOKEEPER_CLIENT_PORT=2181
+      - ZOOKEEPER_TICK_TIME=2000
+    volumes:
+      - zookeeper_data_prod:/var/lib/zookeeper/data
+    networks:
+      - backend
+    restart: always
+
+  # Monitoring and Tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger-prod
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+    environment:
+      - COLLECTOR_ZIPKIN_HTTP_PORT=9411
+      - COLLECTOR_OTLP_ENABLED=true
+    volumes:
+      - jaeger_data_prod:/tmp
+    networks:
+      - backend
+    restart: always
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus-prod
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data_prod:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    networks:
+      - backend
+    restart: always
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana-prod
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data_prod:/var/lib/grafana
+    networks:
+      - backend
+    restart: always
+
+networks:
+  frontend:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: br-frontend-prod
+  backend:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: br-backend-prod
+    internal: true
+
+volumes:
+  user_db_data_prod:
+    driver: local
+  order_db_data_prod:
+    driver: local
+  notification_db_data_prod:
+    driver: local
+  redis_data_prod:
+    driver: local
+  rabbitmq_data_prod:
+    driver: local
+  kafka_data_prod:
+    driver: local
+  zookeeper_data_prod:
+    driver: local
+  jaeger_data_prod:
+    driver: local
+  prometheus_data_prod:
+    driver: local
+  grafana_data_prod:
+    driver: local
+  nginx_cache:
+    driver: local
+  nginx_logs:
+    driver: local
+
+secrets:
+  user_db_password:
+    external: true
+  order_db_password:
+    external: true
+  rabbitmq_password:
+    external: true
+  grafana_password:
+    external: true

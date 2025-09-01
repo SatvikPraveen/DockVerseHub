@@ -1,0 +1,108 @@
+# 07_logging_monitoring/monitoring-stack/grafana.yml
+
+apiVersion: 1
+
+datasources:
+  # Prometheus datasource
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus-uid
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: "5s"
+      queryTimeout: "60s"
+      httpMethod: "POST"
+      customQueryParameters: ""
+    secureJsonData: {}
+
+  # Elasticsearch datasource for logs
+  - name: Elasticsearch
+    type: elasticsearch
+    uid: elasticsearch-uid
+    access: proxy
+    url: http://elasticsearch:9200
+    database: "logstash-*"
+    jsonData:
+      interval: Daily
+      timeField: "@timestamp"
+      esVersion: "8.0.0"
+      maxConcurrentShardRequests: 256
+      logMessageField: "message"
+      logLevelField: "level"
+    editable: true
+
+  # Loki datasource (if using Loki for logs)
+  - name: Loki
+    type: loki
+    uid: loki-uid
+    access: proxy
+    url: http://loki:3100
+    editable: true
+    jsonData:
+      maxLines: 1000
+      derivedFields:
+        - datasourceUid: "jaeger-uid"
+          matcherRegex: "trace_id=(\\w+)"
+          name: "TraceID"
+          url: "$${__value.raw}"
+
+  # Jaeger datasource for tracing (optional)
+  - name: Jaeger
+    type: jaeger
+    uid: jaeger-uid
+    access: proxy
+    url: http://jaeger:16686
+    editable: true
+
+  # TestData datasource for testing
+  - name: TestData
+    type: testdata
+    uid: testdata-uid
+    isDefault: false
+    editable: false
+
+# Notification channels
+notifiers:
+  - name: slack-alerts
+    type: slack
+    uid: slack-uid
+    org_id: 1
+    is_default: true
+    send_reminder: true
+    disable_resolve_message: false
+    frequency: "10s"
+    settings:
+      url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+      channel: "#alerts"
+      title: "Grafana Alert"
+      text: "{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}"
+      username: "grafana-bot"
+      iconEmoji: ":exclamation:"
+
+  - name: email-alerts
+    type: email
+    uid: email-uid
+    org_id: 1
+    settings:
+      addresses: "admin@example.com;alerts@example.com"
+      subject: "Grafana Alert - {{ .GroupLabels.alertname }}"
+      body: |
+        {{ range .Alerts }}
+        Alert: {{ .Annotations.summary }}
+        Description: {{ .Annotations.description }}
+        Labels: {{ range .Labels.SortedPairs }}{{ .Name }}={{ .Value }} {{ end }}
+        {{ end }}
+
+  - name: webhook-alerts
+    type: webhook
+    uid: webhook-uid
+    org_id: 1
+    settings:
+      url: "http://webhook-receiver:8080/alerts"
+      httpMethod: "POST"
+      maxAlerts: 0
+      title: "Grafana Alert"
+      message: "{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}"

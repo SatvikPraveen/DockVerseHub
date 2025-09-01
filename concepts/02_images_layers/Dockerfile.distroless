@@ -1,0 +1,70 @@
+# File Location: concepts/02_images_layers/Dockerfile.distroless
+# Distroless image example - maximum security with minimal attack surface
+
+# Build stage with full toolchain
+FROM python:3.9-slim AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
+WORKDIR /app
+
+# Copy requirements and install dependencies
+COPY requirements.txt .
+RUN pip install --user --no-cache-dir -r requirements.txt
+
+# Copy and compile application
+COPY src/ ./src/
+COPY app.py .
+
+# Compile Python files for better performance
+RUN python -m compileall -b src/ app.py
+
+# Remove source files, keep only bytecode
+RUN find . -name "*.py" -not -name "app.py" -delete
+RUN find . -name "__pycache__" -exec rm -rf {} +
+
+# Production stage using distroless image
+FROM gcr.io/distroless/python3-debian11:latest
+
+# Copy Python packages from builder
+COPY --from=builder /root/.local/lib/python3.9/site-packages /usr/local/lib/python3.9/site-packages/
+
+# Copy application
+COPY --from=builder /app/app.py /app/
+COPY --from=builder /app/src/ /app/src/
+
+# Set working directory
+WORKDIR /app
+
+# Distroless images run as non-root by default
+# No shell, no package manager, no unnecessary binaries
+
+# Expose port
+EXPOSE 5000
+
+# Use exec form - only option in distroless
+CMD ["python", "app.py"]
+
+# Distroless benefits:
+# 1. No shell - prevents shell-based attacks
+# 2. No package manager - can't install malicious packages
+# 3. Minimal attack surface - only essential files
+# 4. Small size - typically 20-100MB vs 200MB+ for full OS
+# 5. Non-root by default
+# 6. Debugging support available with :debug tag
+# 7. CVE scanning shows fewer vulnerabilities
+
+# Available distroless images:
+# - gcr.io/distroless/static-debian11 (static binaries only)
+# - gcr.io/distroless/base-debian11 (minimal runtime)
+# - gcr.io/distroless/python3-debian11 (Python runtime)
+# - gcr.io/distroless/nodejs-debian11 (Node.js runtime)
+# - gcr.io/distroless/java-debian11 (Java runtime)
+
+# Debugging distroless containers:
+# Use :debug tag for troubleshooting (includes busybox shell)
+# FROM gcr.io/distroless/python3-debian11:debug

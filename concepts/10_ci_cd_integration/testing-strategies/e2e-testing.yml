@@ -1,0 +1,522 @@
+# 10_ci_cd_integration/testing-strategies/e2e-testing.yml
+
+# End-to-End Testing with Playwright and Multiple Browsers
+# Complete user journey testing across different environments
+
+version: "3.8"
+
+services:
+  # Application Under Test (Production-like)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://testuser:testpass@postgres:5432/e2e_testdb
+      REDIS_URL: redis://redis:6379/1
+      PORT: 3000
+      SESSION_SECRET: e2e-test-secret
+      JWT_SECRET: e2e-jwt-secret
+      API_BASE_URL: http://api:3001
+      FEATURE_FLAGS_URL: http://feature-flags:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    volumes:
+      - ./uploads:/app/uploads
+    networks:
+      - e2e-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # PostgreSQL for E2E
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpass
+      POSTGRES_DB: e2e_testdb
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_e2e_data:/var/lib/postgresql/data
+      - ./tests/e2e/fixtures/db-seed.sql:/docker-entrypoint-initdb.d/seed.sql:ro
+    networks:
+      - e2e-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U testuser -d e2e_testdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Redis for Sessions
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    networks:
+      - e2e-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Mock API Service
+  api:
+    image: node:18-alpine
+    working_dir: /app
+    environment:
+      PORT: 3001
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./tests/e2e/mocks:/app:ro
+    networks:
+      - e2e-network
+    command: >
+      sh -c "
+        npm install express cors body-parser &&
+        node server.js
+      "
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:3001/health",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Feature Flags Service
+  feature-flags:
+    image: node:18-alpine
+    working_dir: /app
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./tests/e2e/mocks/feature-flags.js:/app/server.js:ro
+    networks:
+      - e2e-network
+    command: >
+      sh -c "
+        npm install express &&
+        node server.js
+      "
+
+  # Playwright E2E Tests
+  playwright:
+    build:
+      context: .
+      dockerfile: tests/e2e/Dockerfile.playwright
+    environment:
+      BASE_URL: http://app:3000
+      API_URL: http://api:3001
+      TEST_USER_EMAIL: test@example.com
+      TEST_USER_PASSWORD: testpass123
+      HEADLESS: "true"
+      BROWSER: "all"
+      WORKERS: "3"
+      RETRIES: "2"
+      TIMEOUT: "30000"
+      VIDEO_MODE: "retain-on-failure"
+      SCREENSHOT_MODE: "only-on-failure"
+      TRACE_MODE: "retain-on-failure"
+    depends_on:
+      app:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    volumes:
+      - ./tests/e2e:/tests:ro
+      - ./test-results/e2e:/test-results
+      - ./test-reports/e2e:/test-reports
+    networks:
+      - e2e-network
+    command: >
+      sh -c "
+        echo 'Waiting for application to be fully ready...' &&
+        sleep 30 &&
+        echo 'Running E2E tests...' &&
+        npx playwright test --config=/tests/playwright.config.js
+      "
+
+  # Cypress E2E Tests (Alternative)
+  cypress:
+    build:
+      context: .
+      dockerfile: tests/e2e/Dockerfile.cypress
+    environment:
+      CYPRESS_BASE_URL: http://app:3000
+      CYPRESS_API_URL: http://api:3001
+      CYPRESS_USERNAME: test@example.com
+      CYPRESS_PASSWORD: testpass123
+      CYPRESS_VIDEO: "true"
+      CYPRESS_SCREENSHOTS_FOLDER: /test-results/screenshots
+      CYPRESS_VIDEOS_FOLDER: /test-results/videos
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - ./tests/e2e/cypress:/cypress:ro
+      - ./test-results/cypress:/test-results
+    networks:
+      - e2e-network
+    command: >
+      sh -c "
+        sleep 30 &&
+        cypress run --config baseUrl=http://app:3000
+      "
+
+  # Selenium Grid Hub
+  selenium-hub:
+    image: selenium/hub:4.15.0
+    ports:
+      - "4444:4444"
+      - "4442:4442"
+      - "4443:4443"
+    environment:
+      GRID_MAX_SESSION: 16
+      GRID_BROWSER_TIMEOUT: 300
+      GRID_TIMEOUT: 300
+    networks:
+      - e2e-network
+
+  # Chrome Node
+  chrome:
+    image: selenium/node-chrome:4.15.0
+    environment:
+      HUB_HOST: selenium-hub
+      HUB_PORT: 4444
+      NODE_MAX_INSTANCES: 4
+      NODE_MAX_SESSION: 4
+    depends_on:
+      - selenium-hub
+    networks:
+      - e2e-network
+    shm_size: 2gb
+
+  # Firefox Node
+  firefox:
+    image: selenium/node-firefox:4.15.0
+    environment:
+      HUB_HOST: selenium-hub
+      HUB_PORT: 4444
+      NODE_MAX_INSTANCES: 4
+      NODE_MAX_SESSION: 4
+    depends_on:
+      - selenium-hub
+    networks:
+      - e2e-network
+    shm_size: 2gb
+
+  # Edge Node
+  edge:
+    image: selenium/node-edge:4.15.0
+    environment:
+      HUB_HOST: selenium-hub
+      HUB_PORT: 4444
+      NODE_MAX_INSTANCES: 4
+      NODE_MAX_SESSION: 4
+    depends_on:
+      - selenium-hub
+    networks:
+      - e2e-network
+    shm_size: 2gb
+
+  # WebDriver Tests
+  webdriver-tests:
+    build:
+      context: .
+      dockerfile: tests/e2e/Dockerfile.webdriver
+    environment:
+      SELENIUM_HUB_URL: http://selenium-hub:4444/wd/hub
+      APP_URL: http://app:3000
+      TEST_BROWSER: chrome
+      PARALLEL_TESTS: "3"
+    depends_on:
+      app:
+        condition: service_healthy
+      selenium-hub:
+        condition: service_started
+      chrome:
+        condition: service_started
+    volumes:
+      - ./tests/e2e/webdriver:/tests:ro
+      - ./test-results/webdriver:/test-results
+    networks:
+      - e2e-network
+    command: >
+      sh -c "
+        sleep 60 &&
+        npm test
+      "
+
+  # Visual Regression Testing
+  visual-tests:
+    build:
+      context: .
+      dockerfile: tests/e2e/Dockerfile.visual
+    environment:
+      APP_URL: http://app:3000
+      PERCY_TOKEN: ${PERCY_TOKEN}
+      CHROMATIC_PROJECT_TOKEN: ${CHROMATIC_PROJECT_TOKEN}
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - ./tests/e2e/visual:/tests:ro
+      - ./test-results/visual:/test-results
+    networks:
+      - e2e-network
+    command: >
+      sh -c "
+        sleep 30 &&
+        echo 'Running visual regression tests...' &&
+        npm run test:visual
+      "
+
+  # Accessibility Testing
+  a11y-tests:
+    build:
+      context: .
+      dockerfile: tests/e2e/Dockerfile.a11y
+    environment:
+      APP_URL: http://app:3000
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - ./tests/e2e/a11y:/tests:ro
+      - ./test-results/a11y:/test-results
+    networks:
+      - e2e-network
+    command: >
+      sh -c "
+        sleep 30 &&
+        echo 'Running accessibility tests...' &&
+        axe-core-cli --output junit http://app:3000 > /test-results/a11y-results.xml &&
+        pa11y-ci --sitemap http://app:3000/sitemap.xml --reporter junit > /test-results/pa11y-results.xml
+      "
+
+  # Performance Testing (E2E Performance)
+  lighthouse:
+    image: femtopixel/google-lighthouse
+    environment:
+      URL: http://app:3000
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - ./test-results/lighthouse:/home/chrome/reports
+    networks:
+      - e2e-network
+    command: >
+      sh -c "
+        sleep 30 &&
+        lighthouse http://app:3000 \
+          --output=html,json \
+          --output-path=/home/chrome/reports/lighthouse-report \
+          --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' \
+          --preset=desktop
+      "
+
+  # Load Testing During E2E
+  k6-load:
+    image: grafana/k6:latest
+    environment:
+      APP_URL: http://app:3000
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - ./tests/e2e/load:/scripts:ro
+      - ./test-results/load:/results
+    networks:
+      - e2e-network
+    command: >
+      sh -c "
+        sleep 45 &&
+        k6 run --out json=/results/load-test-results.json /scripts/concurrent-user-test.js
+      "
+
+  # Test Data Management
+  test-data-manager:
+    build:
+      context: .
+      dockerfile: tests/e2e/Dockerfile.data-manager
+    environment:
+      DATABASE_URL: postgres://testuser:testpass@postgres:5432/e2e_testdb
+      REDIS_URL: redis://redis:6379/1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./tests/e2e/data:/data:ro
+      - ./test-results/data:/results
+    networks:
+      - e2e-network
+    command: >
+      sh -c "
+        echo 'Setting up test data...' &&
+        npm run setup:test-data &&
+        echo 'Test data setup complete'
+      "
+
+  # Test Report Aggregator
+  report-aggregator:
+    image: node:18-alpine
+    depends_on:
+      - playwright
+      - cypress
+      - webdriver-tests
+      - visual-tests
+      - a11y-tests
+      - lighthouse
+    volumes:
+      - ./test-results:/input:ro
+      - ./test-reports:/output
+    networks:
+      - e2e-network
+    command: >
+      sh -c "
+        npm install -g junit-merge allure-commandline mochawesome-merge mochawesome-report-generator &&
+        sleep 300 &&
+        echo 'Aggregating test reports...' &&
+        
+        # Merge JUnit reports
+        junit-merge -d /input -o /output/junit-merged.xml &&
+        
+        # Generate Allure report if results exist
+        if [ -d /input/allure-results ]; then
+          allure generate /input/allure-results -o /output/allure-report --clean
+        fi &&
+        
+        # Generate HTML report
+        mochawesome-merge '/input/**/mochawesome.json' > /output/merged-results.json &&
+        marge /output/merged-results.json --reportDir /output/html-report &&
+        
+        echo 'Test reports generated successfully'
+      "
+
+  # Monitoring During Tests
+  test-monitor:
+    image: prom/prometheus:latest
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./tests/e2e/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - e2e-network
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+
+  # Grafana for Test Metrics
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./tests/e2e/monitoring/grafana:/etc/grafana/provisioning:ro
+    networks:
+      - e2e-network
+
+volumes:
+  postgres_e2e_data:
+
+networks:
+  e2e-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+
+# Additional configurations for different environments
+---
+# docker-compose.e2e.ci.yml (for CI environments)
+version: "3.8"
+
+services:
+  app:
+    environment:
+      CI: "true"
+      NODE_OPTIONS: "--max-old-space-size=2048"
+
+  playwright:
+    environment:
+      HEADLESS: "true"
+      CI: "true"
+      WORKERS: "2"
+      RETRIES: "3"
+      VIDEO_MODE: "off"
+      SCREENSHOT_MODE: "only-on-failure"
+
+  cypress:
+    environment:
+      CYPRESS_VIDEO: "false"
+      CYPRESS_RECORD_KEY: ${CYPRESS_RECORD_KEY}
+
+---
+# docker-compose.e2e.dev.yml (for development)
+version: "3.8"
+
+services:
+  app:
+    environment:
+      DEBUG: "app:*"
+      LOG_LEVEL: debug
+    volumes:
+      - ./src:/app/src:ro
+      - ./public:/app/public:ro
+
+  playwright:
+    environment:
+      HEADLESS: "false"
+      WORKERS: "1"
+      VIDEO_MODE: "on"
+      TRACE_MODE: "on"
+    ports:
+      - "9323:9323" # Playwright UI mode
+
+# Usage Examples:
+#
+# Full E2E test suite:
+# docker-compose -f e2e-testing.yml up --build --abort-on-container-exit
+#
+# Run only Playwright tests:
+# docker-compose -f e2e-testing.yml up app postgres redis api playwright
+#
+# Run with CI optimizations:
+# docker-compose -f e2e-testing.yml -f docker-compose.e2e.ci.yml up
+#
+# Development mode with debugging:
+# docker-compose -f e2e-testing.yml -f docker-compose.e2e.dev.yml up
+#
+# Run specific browser tests:
+# docker-compose -f e2e-testing.yml up app selenium-hub chrome webdriver-tests
+#
+# Visual regression testing only:
+# docker-compose -f e2e-testing.yml up app visual-tests

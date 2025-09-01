@@ -1,0 +1,160 @@
+version: "3.8"
+
+services:
+  consul:
+    image: consul:1.16
+    container_name: consul
+    command: >
+      consul agent -server -bootstrap-expect=1 -datacenter=dc1 -data-dir=/consul/data
+      -log-level=INFO -node=consul-server -bind=0.0.0.0 -client=0.0.0.0
+      -retry-join="consul" -ui -connect-enabled
+    ports:
+      - "8500:8500"
+      - "8600:8600/udp"
+    volumes:
+      - consul-data:/consul/data
+      - consul-config:/consul/config
+    networks:
+      - service-mesh
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Service Mesh Proxy for User Service
+  user-service-proxy:
+    image: envoyproxy/envoy:v1.27-latest
+    container_name: user-service-proxy
+    depends_on:
+      consul:
+        condition: service_healthy
+    volumes:
+      - ./envoy-configs/user-service-envoy.yaml:/etc/envoy/envoy.yaml:ro
+    ports:
+      - "9001:9001" # Admin port
+      - "8001:8001" # Service port
+    networks:
+      - service-mesh
+    command: /usr/local/bin/envoy -c /etc/envoy/envoy.yaml
+
+  # Service Mesh Proxy for Order Service
+  order-service-proxy:
+    image: envoyproxy/envoy:v1.27-latest
+    container_name: order-service-proxy
+    depends_on:
+      consul:
+        condition: service_healthy
+    volumes:
+      - ./envoy-configs/order-service-envoy.yaml:/etc/envoy/envoy.yaml:ro
+    ports:
+      - "9002:9002" # Admin port
+      - "8002:8002" # Service port
+    networks:
+      - service-mesh
+    command: /usr/local/bin/envoy -c /etc/envoy/envoy.yaml
+
+  # Service Mesh Proxy for Notification Service
+  notification-service-proxy:
+    image: envoyproxy/envoy:v1.27-latest
+    container_name: notification-service-proxy
+    depends_on:
+      consul:
+        condition: service_healthy
+    volumes:
+      - ./envoy-configs/notification-service-envoy.yaml:/etc/envoy/envoy.yaml:ro
+    ports:
+      - "9003:9003" # Admin port
+      - "8003:8003" # Service port
+    networks:
+      - service-mesh
+    command: /usr/local/bin/envoy -c /etc/envoy/envoy.yaml
+
+  # Consul Connect intentions and service registration
+  consul-config:
+    image: consul:1.16
+    container_name: consul-config
+    depends_on:
+      consul:
+        condition: service_healthy
+    volumes:
+      - ./consul-configs:/consul-configs:ro
+    networks:
+      - service-mesh
+    command: >
+      sh -c "
+        sleep 10 &&
+        consul services register -http-addr=consul:8500 /consul-configs/user-service.json &&
+        consul services register -http-addr=consul:8500 /consul-configs/order-service.json &&
+        consul services register -http-addr=consul:8500 /consul-configs/notification-service.json &&
+        consul connect intention create -http-addr=consul:8500 -allow api-gateway user-service &&
+        consul connect intention create -http-addr=consul:8500 -allow api-gateway order-service &&
+        consul connect intention create -http-addr=consul:8500 -allow api-gateway notification-service &&
+        consul connect intention create -http-addr=consul:8500 -allow order-service user-service &&
+        consul connect intention create -http-addr=consul:8500 -allow order-service notification-service &&
+        echo 'Service mesh configuration completed'
+      "
+
+  # Jaeger for distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:1.49
+    container_name: jaeger
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+      - "14250:14250"
+      - "6831:6831/udp"
+      - "6832:6832/udp"
+    environment:
+      COLLECTOR_OTLP_ENABLED: true
+      COLLECTOR_ZIPKIN_HOST_PORT: :9411
+    networks:
+      - service-mesh
+
+  # Prometheus for service mesh metrics
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: prometheus-mesh
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus-config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--storage.tsdb.retention.time=200h"
+      - "--web.enable-lifecycle"
+    networks:
+      - service-mesh
+
+  # Grafana for service mesh dashboards
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: grafana-mesh
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana-config/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana-config/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - service-mesh
+
+volumes:
+  consul-data:
+  consul-config:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  service-mesh:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

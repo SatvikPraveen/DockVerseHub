@@ -1,0 +1,482 @@
+# 08_orchestration/service-mesh/consul-connect.yml
+
+version: '3.8'
+
+services:
+  # Consul server
+  consul-server:
+    image: consul:1.16
+    ports:
+      - "8500:8500"
+      - "8600:8600/udp"
+    networks:
+      - consul-network
+    command: |
+      consul agent
+      -server
+      -bootstrap-expect=1
+      -datacenter=dc1
+      -data-dir=/consul/data
+      -log-level=INFO
+      -node=consul-server
+      -bind=0.0.0.0
+      -client=0.0.0.0
+      -retry-join=consul-server
+      -ui-config-enabled
+      -connect-enabled
+    volumes:
+      - consul-data:/consul/data
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Consul agent (runs on all worker nodes)
+  consul-agent:
+    image: consul:1.16
+    networks:
+      - consul-network
+    command: |
+      consul agent
+      -datacenter=dc1
+      -data-dir=/consul/data
+      -log-level=INFO
+      -node-id=$(consul uuid)
+      -bind=0.0.0.0
+      -retry-join=consul-server
+      -connect-enabled
+    volumes:
+      - consul-agent-data:/consul/data
+    deploy:
+      mode: global
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    depends_on:
+      - consul-server
+
+  # Web service with Consul Connect sidecar
+  web-service:
+    image: nginx:alpine
+    networks:
+      - consul-network
+      - app-network
+    configs:
+      - source: web-nginx-config
+        target: /etc/nginx/nginx.conf
+    deploy:
+      replicas: 3
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+      labels:
+        - "consul.service=web"
+        - "consul.service.port=80"
+        - "consul.service.tags=frontend,http"
+        - "consul.service.check.http=/health"
+        - "consul.service.check.interval=30s"
+        - "consul.connect.enabled=true"
+        - "consul.connect.sidecar_service.port=20000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Web service Envoy sidecar proxy
+  web-sidecar:
+    image: envoyproxy/envoy:v1.27-latest
+    networks:
+      - consul-network
+    command: |
+      sh -c 'consul connect envoy -sidecar-for web-service-$HOSTNAME -admin-bind 0.0.0.0:19000'
+    environment:
+      - CONSUL_HTTP_ADDR=consul-server:8500
+    deploy:
+      replicas: 3
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    depends_on:
+      - consul-server
+      - web-service
+
+  # API service with Consul Connect
+  api-service:
+    image: python:3.11-alpine
+    networks:
+      - consul-network
+      - app-network
+      - backend-network
+    environment:
+      - DATABASE_URL=postgresql://user:pass@db:5432/appdb
+      - CONSUL_HTTP_ADDR=consul-server:8500
+    command: |
+      sh -c 'pip install flask consul-python requests &&
+             cat > /app.py << "EOF"
+from flask import Flask, jsonify, request
+import consul
+import requests
+import os
+import json
+
+app = Flask(__name__)
+consul_client = consul.Consul(host="consul-server", port=8500)
+
+# Register service with Consul
+def register_service():
+    consul_client.agent.service.register(
+        name="api",
+        service_id="api-service-1",
+        address="api-service",
+        port=8080,
+        tags=["api", "backend"],
+        check=consul.Check.http("http://api-service:8080/health", interval="30s")
+    )
+
+@app.route("/health")
+def health():
+    return jsonify({
+        "status": "healthy",
+        "service": "api",
+        "consul_connected": True
+    })
+
+@app.route("/api/data")
+def get_data():
+    return jsonify({
+        "data": "API response",
+        "timestamp": "2023-01-01T00:00:00Z"
+    })
+
+@app.route("/api/services")
+def list_services():
+    try:
+        services = consul_client.health.service("web", passing=True)[1]
+        return jsonify({
+            "discovered_services": [
+                {
+                    "name": s["Service"]["Service"],
+                    "address": s["Service"]["Address"],
+                    "port": s["Service"]["Port"],
+                    "health": s["Checks"][0]["Status"] if s["Checks"] else "unknown"
+                }
+                for s in services
+            ]
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/call-web")
+def call_web():
+    try:
+        # Discover web service through Consul
+        services = consul_client.health.service("web", passing=True)[1]
+        if not services:
+            return jsonify({"error": "No healthy web services found"}), 503
+        
+        web_service = services[0]["Service"]
+        response = requests.get(f"http://{web_service['Address']}:{web_service['Port']}/health")
+        
+        return jsonify({
+            "web_service_response": response.json(),
+            "called_service": f"{web_service['Address']}:{web_service['Port']}"
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == "__main__":
+    register_service()
+    app.run(host="0.0.0.0", port=8080)
+EOF
+             python /app.py'
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+      labels:
+        - "consul.service=api"
+        - "consul.service.port=8080"
+        - "consul.service.tags=api,backend"
+        - "consul.service.check.http=/health"
+        - "consul.service.check.interval=30s"
+        - "consul.connect.enabled=true"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - consul-server
+
+  # API service Envoy sidecar
+  api-sidecar:
+    image: envoyproxy/envoy:v1.27-latest
+    networks:
+      - consul-network
+    command: |
+      sh -c 'consul connect envoy -sidecar-for api-service-$HOSTNAME -admin-bind 0.0.0.0:19001'
+    environment:
+      - CONSUL_HTTP_ADDR=consul-server:8500
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    depends_on:
+      - consul-server
+      - api-service
+
+  # Database service
+  database:
+    image: postgres:15-alpine
+    networks:
+      - backend-network
+      - consul-network
+    environment:
+      - POSTGRES_DB=appdb
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=secret123
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+      labels:
+        - "consul.service=database"
+        - "consul.service.port=5432"
+        - "consul.service.tags=database,postgres"
+        - "consul.service.check.tcp=:5432"
+        - "consul.service.check.interval=30s"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d appdb"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Consul Connect gateway for external traffic
+  ingress-gateway:
+    image: envoyproxy/envoy:v1.27-latest
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    networks:
+      - consul-network
+    environment:
+      - CONSUL_HTTP_ADDR=consul-server:8500
+    command: |
+      consul connect envoy -gateway=ingress -register -service ingress-gateway -admin-bind 0.0.0.0:19002
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+          - node.labels.ingress == enabled
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    depends_on:
+      - consul-server
+    configs:
+      - source: ingress-gateway-config
+        target: /consul/config/ingress-gateway.hcl
+
+  # Terminating gateway for external services
+  terminating-gateway:
+    image: envoyproxy/envoy:v1.27-latest
+    networks:
+      - consul-network
+    environment:
+      - CONSUL_HTTP_ADDR=consul-server:8500
+    command: |
+      consul connect envoy -gateway=terminating -register -service terminating-gateway -admin-bind 0.0.0.0:19003
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    depends_on:
+      - consul-server
+    configs:
+      - source: terminating-gateway-config
+        target: /consul/config/terminating-gateway.hcl
+
+  # Consul Connect intentions configuration
+  intentions-config:
+    image: consul:1.16
+    networks:
+      - consul-network
+    environment:
+      - CONSUL_HTTP_ADDR=consul-server:8500
+    command: |
+      sh -c 'sleep 30 &&
+             consul intention create -allow web api &&
+             consul intention create -allow api database &&
+             consul intention create -deny "*" database &&
+             echo "Consul Connect intentions configured"'
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: none
+    depends_on:
+      - consul-server
+      - web-service
+      - api-service
+      - database
+
+  # Observability - Consul metrics
+  consul-exporter:
+    image: prom/consul-exporter:latest
+    networks:
+      - consul-network
+      - monitoring-network
+    command:
+      - '--consul.server=consul-server:8500'
+      - '--web.listen-address=0.0.0.0:9107'
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+    depends_on:
+      - consul-server
+
+  # Service mesh visualization
+  consul-ui:
+    image: consul:1.16
+    ports:
+      - "8501:8500"
+    networks:
+      - consul-network
+    environment:
+      - CONSUL_HTTP_ADDR=consul-server:8500
+    command: |
+      consul agent
+      -datacenter=dc1
+      -data-dir=/consul/data
+      -log-level=INFO
+      -node=consul-ui
+      -bind=0.0.0.0
+      -client=0.0.0.0
+      -retry-join=consul-server
+      -ui-config-enabled
+      -connect-enabled
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    depends_on:
+      - consul-server
+
+networks:
+  consul-network:
+    driver: overlay
+    attachable: true
+    
+  app-network:
+    driver: overlay
+    
+  backend-network:
+    driver: overlay
+    driver_opts:
+      encrypted: "true"
+      
+  monitoring-network:
+    driver: overlay
+
+volumes:
+  consul-data:
+    driver: local
+    
+  consul-agent-data:
+    driver: local
+    
+  db-data:
+    driver: local
+
+configs:
+  web-nginx-config:
+    external: true
+    
+  ingress-gateway-config:
+    external: true
+    
+  terminating-gateway-config:
+    external: true

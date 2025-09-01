@@ -1,0 +1,123 @@
+# File Location: concepts/05_docker_compose/profiles-demo/staging.yml
+
+version: "3.8"
+
+services:
+  # Application
+  app:
+    image: myapp:${VERSION:-staging}
+    profiles: ["core", "staging"]
+    environment:
+      - NODE_ENV=staging
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - API_KEY=${API_KEY}
+    ports:
+      - "3000:3000"
+    networks:
+      - staging-network
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  # Database
+  database:
+    image: postgres:13-alpine
+    profiles: ["core", "staging", "backend"]
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-stagingdb}
+      - POSTGRES_USER=${POSTGRES_USER:-staging}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    ports:
+      - "5433:5432" # Different port to avoid conflicts
+    volumes:
+      - staging-db:/var/lib/postgresql/data
+      - ./staging-init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - staging-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U staging -d stagingdb"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis
+  redis:
+    image: redis:6-alpine
+    profiles: ["core", "staging", "backend"]
+    ports:
+      - "6380:6379" # Different port for staging
+    volumes:
+      - staging-redis:/data
+    networks:
+      - staging-network
+    command: redis-server --appendonly yes
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    profiles: ["staging", "frontend"]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx-staging.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl-staging:/etc/nginx/ssl:ro
+    networks:
+      - staging-network
+    depends_on:
+      - app
+
+  # Monitoring
+  monitoring:
+    image: prom/prometheus
+    profiles: ["staging", "monitoring"]
+    ports:
+      - "9091:9090" # Different port for staging
+    volumes:
+      - ./prometheus-staging.yml:/etc/prometheus/prometheus.yml
+      - staging-prometheus:/prometheus
+    networks:
+      - staging-network
+
+  # Log aggregation
+  logs:
+    image: fluent/fluent-bit
+    profiles: ["staging", "logging"]
+    volumes:
+      - ./fluent-bit-staging.conf:/fluent-bit/etc/fluent-bit.conf
+      - /var/log:/var/log:ro
+    networks:
+      - staging-network
+    depends_on:
+      - app
+
+  # Staging-specific debugging tools
+  debug-tools:
+    image: alpine:latest
+    profiles: ["staging", "debug"]
+    command: |
+      sh -c '
+        apk add --no-cache curl jq bind-tools
+        echo "Debug tools ready for staging environment"
+        sleep infinity
+      '
+    volumes:
+      - ./debug-scripts:/scripts
+    networks:
+      - staging-network
+
+volumes:
+  staging-db:
+  staging-redis:
+  staging-prometheus:
+
+networks:
+  staging-network:
+    driver: bridge
+# Usage:
+# docker-compose -f staging.yml --profile staging up -d
+# docker-compose -f staging.yml --profile monitoring up -d

@@ -1,0 +1,211 @@
+# 07_logging_monitoring/monitoring-stack/alertmanager.yml
+
+global:
+  smtp_smarthost: "mailserver:587"
+  smtp_from: "alerts@example.com"
+  smtp_auth_username: "alerts@example.com"
+  smtp_auth_password: "password"
+  smtp_require_tls: true
+
+  slack_api_url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+
+  # Default template path
+  templates:
+    - "/etc/alertmanager/templates/*.tmpl"
+
+# Route configuration
+route:
+  group_by: ["alertname", "cluster", "service"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  receiver: "default-receiver"
+
+  routes:
+    # Critical alerts - immediate notification
+    - match:
+        severity: critical
+      receiver: "critical-alerts"
+      group_wait: 10s
+      repeat_interval: 2h
+      continue: true
+
+    # Database alerts
+    - match_re:
+        service: "(postgres|mysql|redis|mongodb)"
+      receiver: "database-team"
+      group_interval: 2m
+
+    # Application alerts
+    - match:
+        team: "backend"
+      receiver: "backend-team"
+      group_interval: 3m
+
+    # Infrastructure alerts
+    - match:
+        component: "infrastructure"
+      receiver: "infrastructure-team"
+      group_interval: 5m
+
+    # Low priority alerts during business hours
+    - match:
+        severity: warning
+      receiver: "warning-alerts"
+      active_time_intervals:
+        - business-hours
+      group_interval: 10m
+      repeat_interval: 4h
+
+# Silence configuration
+inhibit_rules:
+  # Silence warning alerts if critical alert is firing
+  - source_match:
+      severity: "critical"
+    target_match:
+      severity: "warning"
+    equal: ["alertname", "cluster", "service"]
+
+  # Silence instance down alerts if cluster is down
+  - source_match:
+      alertname: "ClusterDown"
+    target_match_re:
+      alertname: "(InstanceDown|HighMemoryUsage|HighCPUUsage)"
+    equal: ["cluster"]
+
+# Time intervals
+time_intervals:
+  - name: business-hours
+    time_intervals:
+      - times:
+          - start_time: "09:00"
+            end_time: "17:00"
+        weekdays: ["monday:friday"]
+        location: "UTC"
+
+  - name: weekends
+    time_intervals:
+      - weekdays: ["saturday", "sunday"]
+
+# Receivers configuration
+receivers:
+  # Default receiver
+  - name: "default-receiver"
+    email_configs:
+      - to: "team@example.com"
+        subject: "[Alert] {{ .GroupLabels.alertname }} - {{ .Status | title }}"
+        body: |
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Labels: {{ range .Labels.SortedPairs }}
+            {{ .Name }}: {{ .Value }}
+          {{ end }}
+          Graph: {{ .GeneratorURL }}
+          {{ end }}
+
+    slack_configs:
+      - channel: "#general-alerts"
+        title: "Alert: {{ .GroupLabels.alertname }}"
+        text: |
+          {{ range .Alerts }}
+          {{ .Annotations.summary }}
+          {{ .Annotations.description }}
+          {{ end }}
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+        send_resolved: true
+
+  # Critical alerts - multiple channels
+  - name: "critical-alerts"
+    email_configs:
+      - to: "oncall@example.com,management@example.com"
+        subject: "[CRITICAL] {{ .GroupLabels.alertname }} - IMMEDIATE ACTION REQUIRED"
+        body: |
+          CRITICAL ALERT TRIGGERED
+
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Runbook: {{ .Annotations.runbook_url }}
+
+          Labels:
+          {{ range .Labels.SortedPairs }}
+            {{ .Name }}: {{ .Value }}
+          {{ end }}
+
+          Graph: {{ .GeneratorURL }}
+          {{ end }}
+        headers:
+          X-Priority: "1"
+          X-MSMail-Priority: "High"
+
+    slack_configs:
+      - channel: "#critical-alerts"
+        title: "🚨 CRITICAL: {{ .GroupLabels.alertname }}"
+        text: |
+          <!channel>
+          {{ range .Alerts }}
+          🔥 {{ .Annotations.summary }}
+          📋 {{ .Annotations.description }}
+          {{ if .Annotations.runbook_url }}
+          📖 Runbook: {{ .Annotations.runbook_url }}
+          {{ end }}
+          {{ end }}
+        color: "danger"
+        send_resolved: true
+
+    webhook_configs:
+      - url: "http://pagerduty-webhook:8080/alerts"
+        http_config:
+          bearer_token: "your-pagerduty-token"
+
+  # Database team alerts
+  - name: "database-team"
+    email_configs:
+      - to: "dba-team@example.com"
+        subject: "[DB Alert] {{ .GroupLabels.alertname }}"
+        body: |
+          Database Alert Triggered
+
+          {{ range .Alerts }}
+          Service: {{ .Labels.service }}
+          Instance: {{ .Labels.instance }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          {{ end }}
+
+    slack_configs:
+      - channel: "#database-team"
+        title: "🗄️ Database Alert: {{ .GroupLabels.alertname }}"
+        color: "warning"
+
+  # Backend team alerts
+  - name: "backend-team"
+    slack_configs:
+      - channel: "#backend-alerts"
+        title: "⚙️ Backend Alert: {{ .GroupLabels.alertname }}"
+        text: |
+          {{ range .Alerts }}
+          🔧 {{ .Annotations.summary }}
+          📝 {{ .Annotations.description }}
+          🏷️ Service: {{ .Labels.service }}
+          {{ end }}
+        color: "warning"
+
+  # Infrastructure team alerts
+  - name: "infrastructure-team"
+    email_configs:
+      - to: "infrastructure@example.com"
+        subject: "[Infrastructure] {{ .GroupLabels.alertname }}"
+    slack_configs:
+      - channel: "#infrastructure"
+        title: "🏗️ Infrastructure Alert: {{ .GroupLabels.alertname }}"
+        color: "warning"
+
+  # Warning alerts
+  - name: "warning-alerts"
+    slack_configs:
+      - channel: "#monitoring-warnings"
+        title: "⚠️ Warning: {{ .GroupLabels.alertname }}"
+        color: "warning"
+        send_resolved: true

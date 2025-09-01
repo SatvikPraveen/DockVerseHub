@@ -1,0 +1,37 @@
+# 07_logging_monitoring/monitoring-stack/node-exporter.yml
+
+version: "3.8"
+
+services:
+  node-exporter:
+    image: prom/node-exporter:v1.6.1
+    container_name: node-exporter-standalone
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.rootfs=/rootfs"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+      - "--collector.netdev.device-exclude=^(veth|docker|br-|lo).*$$"
+      - '--collector.diskstats.ignored-devices=^(ram|loop|fd|(h|s|v)d[a-z]|nvme\\d+n\\d+p)\\d+$$'
+      - "--collector.textfile.directory=/host/textfile"
+      - "--collector.processes"
+      - "--collector.systemd"
+      - "--collector.tcpstat"
+      - "--no-collector.ipvs"
+    networks:
+      - monitoring
+    labels:
+      - "prometheus.scrape=true"
+      - "prometheus.port=9100"
+      - "prometheus.path=/metrics"
+
+networks:
+  monitoring:
+    external: true

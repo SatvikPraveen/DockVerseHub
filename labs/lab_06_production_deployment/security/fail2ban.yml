@@ -1,0 +1,239 @@
+# Location: labs/lab_06_production_deployment/security/fail2ban.yml
+version: "3.8"
+
+services:
+  fail2ban:
+    image: crazymax/fail2ban:latest
+    container_name: fail2ban-prod
+    network_mode: "host"
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ./fail2ban-data:/data
+      - ./fail2ban-config:/etc/fail2ban
+      - /var/log:/var/log:ro
+      - nginx-logs:/var/log/nginx:ro
+    environment:
+      - TZ=${TIMEZONE:-UTC}
+      - F2B_LOG_LEVEL=${F2B_LOG_LEVEL:-INFO}
+      - F2B_DB_PURGE_AGE=${F2B_DB_PURGE_AGE:-1d}
+      - SSMTP_HOST=${SMTP_HOST:-}
+      - SSMTP_PORT=${SMTP_PORT:-587}
+      - SSMTP_USER=${SMTP_USER:-}
+      - SSMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SSMTP_TLS=${SMTP_TLS:-YES}
+    restart: unless-stopped
+    depends_on:
+      - fail2ban-config
+
+  # Configuration service
+  fail2ban-config:
+    image: alpine:latest
+    container_name: fail2ban-config-setup
+    volumes:
+      - ./fail2ban-config:/config
+    command: >
+      sh -c "
+        mkdir -p /config/jail.d /config/filter.d /config/action.d &&
+        
+        # Main jail configuration
+        cat > /config/jail.local << 'EOF'
+        [DEFAULT]
+        bantime = 3600
+        findtime = 600
+        maxretry = 5
+        backend = auto
+        usedns = warn
+        logencoding = auto
+        enabled = false
+        mode = normal
+        filter = %(__name__)s[mode=%(mode)s]
+        destemail = ${ADMIN_EMAIL:-root@localhost}
+        sender = ${SENDER_EMAIL:-fail2ban@localhost}
+        mta = sendmail
+        protocol = tcp
+        chain = <known/chain>
+        port = 0:65535
+        fail2ban_agent = Fail2Ban/%(fail2ban_version)s
+        
+        # SSH Protection
+        [sshd]
+        enabled = true
+        port = ssh
+        logpath = /var/log/auth.log
+        backend = %(sshd_backend)s
+        maxretry = 3
+        bantime = 86400
+        
+        # Nginx HTTP Authentication
+        [nginx-http-auth]
+        enabled = true
+        port = http,https
+        logpath = /var/log/nginx/error.log
+        maxretry = 3
+        bantime = 3600
+        
+        # Nginx Rate Limiting
+        [nginx-limit-req]
+        enabled = true
+        port = http,https
+        logpath = /var/log/nginx/error.log
+        maxretry = 10
+        findtime = 600
+        bantime = 3600
+        
+        # Nginx Bad Bots
+        [nginx-badbots]
+        enabled = true
+        port = http,https
+        logpath = /var/log/nginx/access.log
+        maxretry = 2
+        bantime = 86400
+        
+        # Docker API Protection
+        [docker-api]
+        enabled = true
+        port = 2375,2376
+        logpath = /var/log/docker.log
+        maxretry = 3
+        bantime = 86400
+        
+        # General DOS Protection
+        [nginx-dos]
+        enabled = true
+        port = http,https
+        logpath = /var/log/nginx/access.log
+        maxretry = 20
+        findtime = 60
+        bantime = 600
+        EOF
+        
+        # Nginx rate limiting filter
+        cat > /config/filter.d/nginx-limit-req.conf << 'EOF'
+        [Definition]
+        failregex = limiting requests, excess: [\\d\\.]+ by zone .*, client: <HOST>
+        ignoreregex =
+        EOF
+        
+        # Nginx bad bots filter
+        cat > /config/filter.d/nginx-badbots.conf << 'EOF'
+        [Definition]
+        failregex = ^<HOST> -.*\\\"(GET|POST|HEAD).*HTTP/1\\.[01]\\\".*\\\".*\\\" \\\"<F-MISBEHAVE>.*</F-MISBEHAVE>\\\"$
+        ignoreregex =
+        badbots = (?:^|[^a-zA-Z])(?:360Spider|Aboundex|Abonti|Acunetix|AIBOT|BackDoorBot|BadBot|Baiduspider|Bandit|BDCbot|BecomeBot|BeetleBot|BLEXBot|BlowFish|BotMailer|Buddy|BuiltBotTough|Bullseye|BunnySlippers|CCBot|CheeseBot|CherryPicker|ChinaClaw|Cogentbot|Collector|Copier|CopyRightCheck|cosmos|Crescent|DittoSpyder|dotbot|Download|eCatch|EirGrabber|EmailCollector|EmailSiphon|EmailWolf|Express|Extractor|ExtractorPro|EyeNetIE|FlashGet|GetRight|GetWeb!|Go-Ahead-Got-It|Go!Zilla|grab|GrabNet|Grafula|harvest|hloader|HMView|HTTrack|httplib|humanlinks|ia_archiver|Image|InfoNaviRobot|InterGET|Internet|IRLbot|JetCar|larbin|LeechFTP|Mass|Mister|NEWT|MSIECrawler|Navroad|NearSite|NetAnts|NetSpider|NetZIP|Octopus|Offline|PageGrabber|Papa|Pockey|psbot|PussyCat|PycURL|Python-urllib|ReGet|RealDownload|Ripper|SiteSnagger|SmartDownload|SpankBot|spanner|sqworm|Stripper|Sucker|SuperBot|SuperHTTP|Surfbot|tAkeOut|Teleport|Toata|turnit|UserAgent|VoidEYE|Web|WebAuto|WebCopier|WebFetch|WebLeacher|WebReaper|WebSauger|WebStripper|WebWhacker|WebZIP|Widow|WWWOFFLE|x-tractor|Xaldon|Zeus|ZyBorg|SemrushBot|MJ12bot|bingbot|BLEXBot)(?:[^a-zA-Z]|$)
+        EOF
+        
+        # DOS protection filter
+        cat > /config/filter.d/nginx-dos.conf << 'EOF'
+        [Definition]
+        failregex = ^<HOST> -.*\"(GET|POST).*HTTP.*\" [0-9]{3} .*$
+        ignoreregex =
+        EOF
+        
+        # Docker API filter
+        cat > /config/filter.d/docker-api.conf << 'EOF'
+        [Definition]
+        failregex = .*level=warning.*http: TLS handshake error.*remote error.*from <HOST>.*
+                   .*level=error.*http: invalid Host header.*from <HOST>.*
+        ignoreregex =
+        EOF
+        
+        # Slack notification action
+        cat > /config/action.d/slack.conf << 'EOF'
+        [Definition]
+        actionstart = curl -X POST -H 'Content-type: application/json' --data '{\"text\":\"Fail2Ban: [\<name>] jail started\"}' <webhook>
+        actionstop = curl -X POST -H 'Content-type: application/json' --data '{\"text\":\"Fail2Ban: [\<name>] jail stopped\"}' <webhook>
+        actioncheck =
+        actionban = curl -X POST -H 'Content-type: application/json' --data '{\"text\":\"Fail2Ban: [\<name>] banned \<ip> for \<bantime> seconds\"}' <webhook>
+        actionunban = curl -X POST -H 'Content-type: application/json' --data '{\"text\":\"Fail2Ban: [\<name>] unbanned \<ip>\"}' <webhook>
+        
+        [Init]
+        webhook = ${SLACK_WEBHOOK:-}
+        EOF
+        
+        echo 'Fail2Ban configuration files created successfully'
+      "
+    profiles:
+      - init
+
+  # Fail2Ban monitoring and reporting
+  fail2ban-monitor:
+    image: alpine:latest
+    container_name: fail2ban-monitor
+    volumes:
+      - ./fail2ban-data:/data:ro
+      - fail2ban-monitor-scripts:/scripts
+    environment:
+      - SLACK_WEBHOOK=${SLACK_WEBHOOK:-}
+      - NOTIFICATION_EMAIL=${NOTIFICATION_EMAIL:-}
+    command: >
+      sh -c "
+        apk add --no-cache curl dcron sqlite &&
+        
+        cat > /scripts/monitor.sh << 'EOF'
+        #!/bin/sh
+        DB=\"/data/fail2ban.sqlite3\"
+        if [ -f \"$$DB\" ]; then
+          # Get recent bans (last 24 hours)
+          RECENT_BANS=$$(sqlite3 \"$$DB\" \"SELECT COUNT(*) FROM bans WHERE timeofban > strftime('%s', 'now', '-1 day')\")
+          
+          # Get top banned IPs
+          TOP_IPS=$$(sqlite3 \"$$DB\" \"SELECT ip, COUNT(*) as ban_count FROM bans WHERE timeofban > strftime('%s', 'now', '-7 days') GROUP BY ip ORDER BY ban_count DESC LIMIT 5\" | tr '\n' ' ')
+          
+          MESSAGE=\"Fail2Ban Report:\\nBans in last 24h: $$RECENT_BANS\\nTop banned IPs (7 days): $$TOP_IPS\"
+          
+          if [ -n \"$$SLACK_WEBHOOK\" ] && [ \"$$RECENT_BANS\" -gt 0 ]; then
+            curl -X POST -H 'Content-type: application/json' \
+              --data \"{\\\"text\\\":\\\"$$MESSAGE\\\"}\" \
+              \"$$SLACK_WEBHOOK\" || true
+          fi
+        fi
+        EOF
+        
+        chmod +x /scripts/monitor.sh &&
+        echo '0 8 * * * /scripts/monitor.sh' > /var/spool/cron/crontabs/root &&
+        crond -f -l 2
+      "
+    restart: unless-stopped
+
+  # GeoIP blocking service
+  geoip-blocker:
+    image: alpine:latest
+    container_name: geoip-blocker
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - BLOCKED_COUNTRIES=${BLOCKED_COUNTRIES:-CN,RU,KP}
+      - WHITELIST_IPS=${WHITELIST_IPS:-}
+    command: >
+      sh -c "
+        apk add --no-cache iptables curl gawk &&
+        
+        # Download GeoIP database
+        wget -O /tmp/countries.txt https://www.ipdeny.com/ipblocks/data/aggregated/cn-aggregated.zone
+        
+        # Block specified countries
+        for country in \$$(echo $$BLOCKED_COUNTRIES | tr ',' ' '); do
+          if [ -f \"/tmp/\$${country,,}-aggregated.zone\" ]; then
+            while read -r ip; do
+              iptables -I INPUT -s \"$$ip\" -j DROP
+            done < \"/tmp/\$${country,,}-aggregated.zone\"
+          fi
+        done
+        
+        # Whitelist specific IPs
+        for ip in \$$(echo $$WHITELIST_IPS | tr ',' ' '); do
+          iptables -I INPUT -s \"$$ip\" -j ACCEPT
+        done
+        
+        echo 'GeoIP blocking rules applied'
+        sleep infinity
+      "
+    restart: unless-stopped
+    network_mode: host
+
+volumes:
+  nginx-logs:
+    external: true
+  fail2ban-monitor-scripts:

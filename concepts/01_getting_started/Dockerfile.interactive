@@ -1,0 +1,54 @@
+# File Location: concepts/01_getting_started/Dockerfile.interactive
+# Interactive shell container with development tools
+
+FROM ubuntu:20.04
+
+# Prevent interactive prompts during build
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install essential development tools
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    git \
+    vim \
+    nano \
+    htop \
+    tree \
+    jq \
+    net-tools \
+    iputils-ping \
+    telnet \
+    ssh \
+    python3 \
+    python3-pip \
+    nodejs \
+    npm \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create a welcome script
+RUN echo '#!/bin/bash' > /welcome.sh && \
+    echo 'echo "==================================="' >> /welcome.sh && \
+    echo 'echo "  Welcome to Docker Interactive!"' >> /welcome.sh && \
+    echo 'echo "==================================="' >> /welcome.sh && \
+    echo 'echo "Available tools:"' >> /welcome.sh && \
+    echo 'echo "- vim, nano (editors)"' >> /welcome.sh && \
+    echo 'echo "- git (version control)"' >> /welcome.sh && \
+    echo 'echo "- python3, node (runtimes)"' >> /welcome.sh && \
+    echo 'echo "- curl, wget (networking)"' >> /welcome.sh && \
+    echo 'echo "- htop, tree (utilities)"' >> /welcome.sh && \
+    echo 'echo ""' >> /welcome.sh && \
+    echo 'echo "Try: ls, pwd, whoami, cat /etc/os-release"' >> /welcome.sh && \
+    echo 'echo "Exit with: exit"' >> /welcome.sh && \
+    echo 'echo "==================================="' >> /welcome.sh && \
+    chmod +x /welcome.sh
+
+# Set up a basic user
+RUN useradd -m -s /bin/bash dockeruser
+
+# Set working directory
+WORKDIR /home/dockeruser
+
+# Run welcome script and start bash
+CMD ["/bin/bash", "-c", "/welcome.sh && exec /bin/bash"]

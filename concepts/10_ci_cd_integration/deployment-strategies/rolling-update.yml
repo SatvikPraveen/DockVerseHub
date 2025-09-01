@@ -1,0 +1,595 @@
+# 10_ci_cd_integration/deployment-strategies/rolling-update.yml
+
+# Rolling Update Deployment Strategy
+# Standard Kubernetes rolling updates with health checks
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-rolling
+  namespace: production
+  labels:
+    app: myapp
+    deployment-strategy: rolling-update
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+spec:
+  replicas: 6
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1 # Maximum pods that can be unavailable during update
+      maxSurge: 2 # Maximum pods that can be created above desired number
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+        deployment-strategy: rolling-update
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: app
+          image: myapp:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+              name: http
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DEPLOYMENT_TYPE
+              value: rolling-update
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+          startupProbe:
+            httpGet:
+              path: /startup
+              port: 3000
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+            successThreshold: 1
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    echo "Received SIGTERM, starting graceful shutdown..."
+                    # Allow time for load balancer to remove this pod
+                    sleep 15
+                    # Perform graceful shutdown
+                    kill -TERM 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/cache
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+      securityContext:
+        fsGroup: 1000
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - myapp
+                topologyKey: kubernetes.io/hostname
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 1
+              preference:
+                matchExpressions:
+                  - key: node-type
+                    operator: In
+                    values:
+                      - application
+
+---
+# Service for Rolling Update
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-rolling-service
+  namespace: production
+  labels:
+    app: myapp
+    deployment-strategy: rolling-update
+spec:
+  selector:
+    app: myapp
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  type: ClusterIP
+  sessionAffinity: None
+
+---
+# HorizontalPodAutoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: app-rolling-hpa
+  namespace: production
+  labels:
+    app: myapp
+    deployment-strategy: rolling-update
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: app-rolling
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+    - type: Pods
+      pods:
+        metric:
+          name: custom_requests_per_second
+        target:
+          type: AverageValue
+          averageValue: "100"
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+      selectPolicy: Min
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+        - type: Pods
+          value: 4
+          periodSeconds: 60
+      selectPolicy: Max
+
+---
+# PodDisruptionBudget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: app-rolling-pdb
+  namespace: production
+  labels:
+    app: myapp
+    deployment-strategy: rolling-update
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: myapp
+
+---
+# NetworkPolicy for Security
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-rolling-netpol
+  namespace: production
+  labels:
+    app: myapp
+spec:
+  podSelector:
+    matchLabels:
+      app: myapp
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-system
+        - podSelector:
+            matchLabels:
+              app: monitoring
+      ports:
+        - protocol: TCP
+          port: 3000
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: database
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: cache
+      ports:
+        - protocol: TCP
+          port: 6379
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 53
+        - protocol: UDP
+          port: 53
+
+---
+# ServiceMonitor for Prometheus
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: app-rolling-monitor
+  namespace: production
+  labels:
+    app: myapp
+    deployment-strategy: rolling-update
+spec:
+  selector:
+    matchLabels:
+      app: myapp
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      honorLabels: true
+
+---
+# PrometheusRule for Alerts
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: app-rolling-alerts
+  namespace: production
+  labels:
+    app: myapp
+spec:
+  groups:
+    - name: rolling-update.rules
+      rules:
+        - alert: RollingUpdateStuck
+          expr: |
+            kube_deployment_status_replicas{deployment="app-rolling",namespace="production"} !=
+            kube_deployment_status_replicas_ready{deployment="app-rolling",namespace="production"}
+          for: 10m
+          labels:
+            severity: warning
+            deployment: rolling-update
+          annotations:
+            summary: "Rolling update appears stuck"
+            description: "Deployment {{ $labels.deployment }} has been in rolling update state for over 10 minutes"
+
+        - alert: HighPodRestarts
+          expr: |
+            increase(kube_pod_container_status_restarts_total{namespace="production",pod=~"app-rolling-.*"}[15m]) > 3
+          for: 5m
+          labels:
+            severity: warning
+            deployment: rolling-update
+          annotations:
+            summary: "High pod restart rate"
+            description: "Pod {{ $labels.pod }} has restarted {{ $value }} times in the last 15 minutes"
+
+---
+# ConfigMap for Rolling Update Scripts
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rolling-update-scripts
+  namespace: production
+data:
+  rolling-deploy.sh: |
+    #!/bin/bash
+    set -e
+
+    NEW_IMAGE=$1
+    TIMEOUT=${2:-600}
+
+    if [[ -z "$NEW_IMAGE" ]]; then
+        echo "Usage: $0 <new-image> [timeout-seconds]"
+        exit 1
+    fi
+
+    echo "Starting rolling update deployment..."
+    echo "New image: $NEW_IMAGE"
+    echo "Timeout: ${TIMEOUT}s"
+
+    # Record the deployment for rollback purposes
+    kubectl annotate deployment app-rolling -n production deployment.kubernetes.io/change-cause="Update to $NEW_IMAGE"
+
+    # Update the deployment
+    kubectl set image deployment/app-rolling app=$NEW_IMAGE -n production
+
+    # Wait for rollout to complete
+    echo "Waiting for rollout to complete..."
+    if kubectl rollout status deployment/app-rolling -n production --timeout=${TIMEOUT}s; then
+        echo "✅ Rolling update completed successfully!"
+        
+        # Verify deployment
+        READY_REPLICAS=$(kubectl get deployment app-rolling -n production -o jsonpath='{.status.readyReplicas}')
+        DESIRED_REPLICAS=$(kubectl get deployment app-rolling -n production -o jsonpath='{.spec.replicas}')
+        
+        echo "Ready replicas: $READY_REPLICAS/$DESIRED_REPLICAS"
+        
+        if [[ "$READY_REPLICAS" == "$DESIRED_REPLICAS" ]]; then
+            echo "All replicas are ready and healthy"
+        else
+            echo "⚠️  Not all replicas are ready"
+            exit 1
+        fi
+    else
+        echo "❌ Rolling update failed or timed out"
+        echo "Rolling back to previous version..."
+        kubectl rollout undo deployment/app-rolling -n production
+        kubectl rollout status deployment/app-rolling -n production --timeout=300s
+        exit 1
+    fi
+
+  rollback.sh: |
+    #!/bin/bash
+    set -e
+
+    REVISION=${1:-0}  # 0 means previous revision
+
+    echo "Starting rollback..."
+
+    if [[ "$REVISION" == "0" ]]; then
+        echo "Rolling back to previous revision"
+        kubectl rollout undo deployment/app-rolling -n production
+    else
+        echo "Rolling back to revision $REVISION"
+        kubectl rollout undo deployment/app-rolling -n production --to-revision=$REVISION
+    fi
+
+    # Wait for rollback to complete
+    echo "Waiting for rollback to complete..."
+    kubectl rollout status deployment/app-rolling -n production --timeout=300s
+
+    echo "✅ Rollback completed successfully!"
+
+  pause.sh: |
+    #!/bin/bash
+    set -e
+
+    echo "Pausing rolling update..."
+    kubectl rollout pause deployment/app-rolling -n production
+    echo "Rolling update paused. Use resume.sh to continue."
+
+  resume.sh: |
+    #!/bin/bash
+    set -e
+
+    echo "Resuming rolling update..."
+    kubectl rollout resume deployment/app-rolling -n production
+    echo "Rolling update resumed."
+
+  status.sh: |
+    #!/bin/bash
+
+    echo "=== Rolling Update Status ==="
+
+    # Deployment status
+    kubectl get deployment app-rolling -n production -o wide
+
+    # Rollout status
+    echo ""
+    echo "Rollout Status:"
+    kubectl rollout status deployment/app-rolling -n production --timeout=1s 2>/dev/null || echo "Rollout in progress or failed"
+
+    # Pod status
+    echo ""
+    echo "Pods:"
+    kubectl get pods -l app=myapp -n production -o wide
+
+    # Replica sets
+    echo ""
+    echo "ReplicaSets:"
+    kubectl get rs -l app=myapp -n production
+
+    # Rollout history
+    echo ""
+    echo "Rollout History:"
+    kubectl rollout history deployment/app-rolling -n production
+
+    # HPA status
+    echo ""
+    echo "HPA Status:"
+    kubectl get hpa app-rolling-hpa -n production
+
+  health-check.sh: |
+    #!/bin/bash
+
+    SERVICE_URL=${1:-"http://app-rolling-service.production.svc.cluster.local"}
+
+    echo "Running health checks against $SERVICE_URL"
+
+    # Health check
+    if curl -f -s "$SERVICE_URL/health" > /dev/null; then
+        echo "✅ Health check passed"
+    else
+        echo "❌ Health check failed"
+        exit 1
+    fi
+
+    # Ready check
+    if curl -f -s "$SERVICE_URL/ready" > /dev/null; then
+        echo "✅ Ready check passed"
+    else
+        echo "❌ Ready check failed"
+        exit 1
+    fi
+
+    # Load test
+    echo "Running basic load test..."
+    for i in {1..10}; do
+        if ! curl -f -s "$SERVICE_URL/" > /dev/null; then
+            echo "❌ Request $i failed"
+            exit 1
+        fi
+    done
+    echo "✅ Basic load test passed"
+
+---
+# Job for Automated Rolling Update
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rolling-update-job
+  namespace: production
+  labels:
+    app: myapp
+    job-type: rolling-update
+spec:
+  template:
+    metadata:
+      labels:
+        job: rolling-update
+    spec:
+      serviceAccountName: deployment-manager
+      containers:
+        - name: updater
+          image: bitnami/kubectl:latest
+          command: ["/bin/bash"]
+          args:
+            - -c
+            - |
+              # Mount the deployment script
+              cp /scripts/rolling-deploy.sh /tmp/rolling-deploy.sh
+              chmod +x /tmp/rolling-deploy.sh
+
+              # Run deployment
+              /tmp/rolling-deploy.sh ${NEW_IMAGE} ${TIMEOUT}
+          env:
+            - name: NEW_IMAGE
+              value: "myapp:latest"
+            - name: TIMEOUT
+              value: "600"
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+      volumes:
+        - name: scripts
+          configMap:
+            name: rolling-update-scripts
+      restartPolicy: Never
+  backoffLimit: 3
+
+---
+# ServiceAccount for deployment operations
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: deployment-manager
+  namespace: production
+
+---
+# Role for deployment operations
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: production
+  name: deployment-manager
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "patch", "update", "watch"]
+  - apiGroups: [""]
+    resources: ["pods", "services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["extensions"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch", "update", "watch"]
+
+---
+# RoleBinding for deployment operations
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deployment-manager
+  namespace: production
+subjects:
+  - kind: ServiceAccount
+    name: deployment-manager
+    namespace: production
+roleRef:
+  kind: Role
+  name: deployment-manager
+  apiGroup: rbac.authorization.k8s.io

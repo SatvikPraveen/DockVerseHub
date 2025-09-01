@@ -1,0 +1,230 @@
+# Location: labs/lab_06_production_deployment/backup-scripts/automated-backup.yml
+version: "3.8"
+
+services:
+  # Database Backup Service
+  db-backup:
+    image: postgres:15-alpine
+    container_name: db-backup-service
+    volumes:
+      - ./backup-scripts:/scripts:ro
+      - ./backups:/backups
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - BACKUP_SCHEDULE=${DB_BACKUP_SCHEDULE:-0 2 * * *}
+      - RETENTION_DAYS=${RETENTION_DAYS:-30}
+      - S3_BUCKET=${S3_BUCKET:-}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - NOTIFICATION_EMAIL=${NOTIFICATION_EMAIL:-}
+      - SLACK_WEBHOOK=${SLACK_WEBHOOK:-}
+    command: >
+      sh -c "
+        apk add --no-cache docker-cli aws-cli dcron mailx curl &&
+        echo '${DB_BACKUP_SCHEDULE:-0 2 * * *} /scripts/database-backup.sh' > /var/spool/cron/crontabs/root &&
+        echo 'Database backup scheduled at: ${DB_BACKUP_SCHEDULE:-0 2 * * *}' &&
+        crond -f -l 2
+      "
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # Volume Backup Service
+  volume-backup:
+    image: alpine:latest
+    container_name: volume-backup-service
+    volumes:
+      - ./backup-scripts:/scripts:ro
+      - ./backups:/backups
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount all volumes for backup
+      - postgres-user-data:/volumes/postgres-user-data:ro
+      - postgres-order-data:/volumes/postgres-order-data:ro
+      - postgres-grafana-data:/volumes/postgres-grafana-data:ro
+      - mongodb-data:/volumes/mongodb-data:ro
+      - redis-data:/volumes/redis-data:ro
+      - kafka-data:/volumes/kafka-data:ro
+      - prometheus-data:/volumes/prometheus-data:ro
+      - grafana-data:/volumes/grafana-data:ro
+      - elasticsearch-data:/volumes/elasticsearch-data:ro
+      - nginx-logs:/volumes/nginx-logs:ro
+    environment:
+      - BACKUP_SCHEDULE=${VOLUME_BACKUP_SCHEDULE:-0 3 * * *}
+      - RETENTION_DAYS=${VOLUME_RETENTION_DAYS:-7}
+      - S3_BUCKET=${S3_BUCKET:-}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - NOTIFICATION_EMAIL=${NOTIFICATION_EMAIL:-}
+      - SLACK_WEBHOOK=${SLACK_WEBHOOK:-}
+    command: >
+      sh -c "
+        apk add --no-cache docker-cli aws-cli dcron mailx curl &&
+        echo '${VOLUME_BACKUP_SCHEDULE:-0 3 * * *} /scripts/volume-backup.sh' > /var/spool/cron/crontabs/root &&
+        echo 'Volume backup scheduled at: ${VOLUME_BACKUP_SCHEDULE:-0 3 * * *}' &&
+        crond -f -l 2
+      "
+    restart: unless-stopped
+
+  # Configuration Backup Service
+  config-backup:
+    image: alpine:latest
+    container_name: config-backup-service
+    volumes:
+      - ./:/config:ro
+      - ./backups:/backups
+      - ~/.docker:/root/.docker:ro
+    environment:
+      - BACKUP_SCHEDULE=${CONFIG_BACKUP_SCHEDULE:-0 4 * * 0}
+      - S3_BUCKET=${S3_BUCKET:-}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+    command: >
+      sh -c "
+        apk add --no-cache tar gzip aws-cli dcron &&
+        cat > /scripts/config-backup.sh << 'EOF'
+        #!/bin/sh
+        TIMESTAMP=$$(date +%Y%m%d_%H%M%S)
+        BACKUP_FILE=\"/backups/config_$$TIMESTAMP.tar.gz\"
+        echo \"Starting configuration backup: $$BACKUP_FILE\"
+        tar -czf \"$$BACKUP_FILE\" -C /config \
+          --exclude=backups \
+          --exclude=*.log \
+          --exclude=.git \
+          --exclude=node_modules \
+          --exclude=__pycache__ \
+          .
+        if [ -n \"$$S3_BUCKET\" ]; then
+          aws s3 cp \"$$BACKUP_FILE\" \"s3://$$S3_BUCKET/config-backups/\"
+        fi
+        echo \"Configuration backup completed: $$BACKUP_FILE\"
+        EOF &&
+        chmod +x /scripts/config-backup.sh &&
+        echo '${CONFIG_BACKUP_SCHEDULE:-0 4 * * 0} /scripts/config-backup.sh' > /var/spool/cron/crontabs/root &&
+        echo 'Configuration backup scheduled at: ${CONFIG_BACKUP_SCHEDULE:-0 4 * * 0}' &&
+        crond -f -l 2
+      "
+    restart: unless-stopped
+
+  # Backup Monitoring Service
+  backup-monitor:
+    image: alpine:latest
+    container_name: backup-monitor
+    volumes:
+      - ./backups:/backups:ro
+      - ./backup-scripts:/scripts:ro
+    environment:
+      - CHECK_SCHEDULE=${BACKUP_CHECK_SCHEDULE:-0 8 * * *}
+      - MAX_BACKUP_AGE_HOURS=${MAX_BACKUP_AGE_HOURS:-25}
+      - NOTIFICATION_EMAIL=${NOTIFICATION_EMAIL:-}
+      - SLACK_WEBHOOK=${SLACK_WEBHOOK:-}
+    command: >
+      sh -c "
+        apk add --no-cache dcron mailx curl &&
+        cat > /scripts/backup-monitor.sh << 'EOF'
+        #!/bin/sh
+        echo \"Checking backup status...\"
+        ISSUES=\"\"
+        MAX_AGE_SECONDS=$$((MAX_BACKUP_AGE_HOURS * 3600))
+        CURRENT_TIME=$$(date +%s)
+        
+        # Check database backups
+        LATEST_DB_BACKUP=$$(find /backups -name \"*.sql.gz\" -printf \"%T@ %p\n\" | sort -n | tail -1 | cut -d' ' -f1)
+        if [ -n \"$$LATEST_DB_BACKUP\" ]; then
+          AGE=$$((CURRENT_TIME - $${LATEST_DB_BACKUP%.*}))
+          if [ $$AGE -gt $$MAX_AGE_SECONDS ]; then
+            ISSUES=\"$$ISSUES\nDatabase backup is $$((AGE/3600)) hours old\"
+          fi
+        else
+          ISSUES=\"$$ISSUES\nNo database backups found\"
+        fi
+        
+        # Check volume backups
+        LATEST_VOL_BACKUP=$$(find /backups -name \"*_*.tar.gz\" -printf \"%T@ %p\n\" | sort -n | tail -1 | cut -d' ' -f1)
+        if [ -n \"$$LATEST_VOL_BACKUP\" ]; then
+          AGE=$$((CURRENT_TIME - $${LATEST_VOL_BACKUP%.*}))
+          if [ $$AGE -gt $$MAX_AGE_SECONDS ]; then
+            ISSUES=\"$$ISSUES\nVolume backup is $$((AGE/3600)) hours old\"
+          fi
+        else
+          ISSUES=\"$$ISSUES\nNo volume backups found\"
+        fi
+        
+        if [ -n \"$$ISSUES\" ]; then
+          echo \"Backup issues detected:$$ISSUES\"
+          if [ -n \"$$SLACK_WEBHOOK\" ]; then
+            curl -X POST -H 'Content-type: application/json' \
+              --data \"{\\\"text\\\":\\\"Backup Issues Detected:$$ISSUES\\\"}\" \
+              \"$$SLACK_WEBHOOK\" || true
+          fi
+        else
+          echo \"All backups are current\"
+        fi
+        EOF &&
+        chmod +x /scripts/backup-monitor.sh &&
+        echo '${BACKUP_CHECK_SCHEDULE:-0 8 * * *} /scripts/backup-monitor.sh' > /var/spool/cron/crontabs/root &&
+        echo 'Backup monitoring scheduled at: ${BACKUP_CHECK_SCHEDULE:-0 8 * * *}' &&
+        crond -f -l 2
+      "
+    restart: unless-stopped
+
+  # Backup Cleanup Service
+  backup-cleanup:
+    image: alpine:latest
+    container_name: backup-cleanup
+    volumes:
+      - ./backups:/backups
+    environment:
+      - CLEANUP_SCHEDULE=${CLEANUP_SCHEDULE:-0 5 * * 0}
+      - DB_RETENTION_DAYS=${DB_RETENTION_DAYS:-30}
+      - VOLUME_RETENTION_DAYS=${VOLUME_RETENTION_DAYS:-7}
+      - CONFIG_RETENTION_DAYS=${CONFIG_RETENTION_DAYS:-90}
+    command: >
+      sh -c "
+        apk add --no-cache dcron &&
+        cat > /scripts/cleanup.sh << 'EOF'
+        #!/bin/sh
+        echo \"Starting backup cleanup...\"
+        
+        # Clean database backups
+        find /backups -name \"*.sql.gz\" -mtime +$$DB_RETENTION_DAYS -delete
+        
+        # Clean volume backups
+        find /backups -name \"*_*.tar.gz\" -mtime +$$VOLUME_RETENTION_DAYS -delete
+        
+        # Clean configuration backups
+        find /backups -name \"config_*.tar.gz\" -mtime +$$CONFIG_RETENTION_DAYS -delete
+        
+        echo \"Backup cleanup completed\"
+        EOF &&
+        chmod +x /scripts/cleanup.sh &&
+        echo '${CLEANUP_SCHEDULE:-0 5 * * 0} /scripts/cleanup.sh' > /var/spool/cron/crontabs/root &&
+        echo 'Backup cleanup scheduled at: ${CLEANUP_SCHEDULE:-0 5 * * 0}' &&
+        crond -f -l 2
+      "
+    restart: unless-stopped
+
+volumes:
+  postgres-user-data:
+    external: true
+  postgres-order-data:
+    external: true
+  postgres-grafana-data:
+    external: true
+  mongodb-data:
+    external: true
+  redis-data:
+    external: true
+  kafka-data:
+    external: true
+  prometheus-data:
+    external: true
+  grafana-data:
+    external: true
+  elasticsearch-data:
+    external: true
+  nginx-logs:
+    external: true
+
+networks:
+  backend:
+    external: true

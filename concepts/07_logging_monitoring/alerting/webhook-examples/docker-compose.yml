@@ -1,0 +1,145 @@
+# 07_logging_monitoring/alerting/webhook-examples/docker-compose.yml
+
+version: "3.8"
+
+services:
+  # Slack webhook service
+  slack-webhook:
+    build:
+      context: .
+      dockerfile: Dockerfile.slack
+    container_name: slack-webhook
+    ports:
+      - "8080:8080"
+    environment:
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK}
+      - SLACK_CHANNEL=${SLACK_CHANNEL:-#alerts}
+      - SLACK_USERNAME=${SLACK_USERNAME:-AlertManager}
+      - DEBUG=${DEBUG:-false}
+    volumes:
+      - ./slack-webhook.py:/app/app.py:ro
+      - ./requirements.txt:/app/requirements.txt:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # PagerDuty webhook service
+  pagerduty-webhook:
+    build:
+      context: .
+      dockerfile: Dockerfile.pagerduty
+    container_name: pagerduty-webhook
+    ports:
+      - "8081:8081"
+    environment:
+      - PAGERDUTY_INTEGRATION_KEY=${PAGERDUTY_INTEGRATION_KEY:-your-integration-key-here}
+      - PORT=8081
+      - DEBUG=${DEBUG:-false}
+    volumes:
+      - ./pagerduty-webhook.py:/app/app.py:ro
+      - ./requirements.txt:/app/requirements.txt:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Email webhook service
+  email-webhook:
+    build:
+      context: .
+      dockerfile: Dockerfile.email
+    container_name: email-webhook
+    ports:
+      - "8082:8082"
+    environment:
+      - SMTP_SERVER=${SMTP_SERVER:-localhost}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USERNAME=${SMTP_USERNAME:-alerts@example.com}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-password}
+      - SMTP_USE_TLS=${SMTP_USE_TLS:-true}
+      - FROM_EMAIL=${FROM_EMAIL:-alerts@example.com}
+      - TO_EMAILS=${TO_EMAILS:-admin@example.com}
+      - PORT=8082
+      - DEBUG=${DEBUG:-false}
+    volumes:
+      - ./email-webhook.py:/app/app.py:ro
+      - ./requirements.txt:/app/requirements.txt:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Generic webhook service
+  generic-webhook:
+    build:
+      context: .
+      dockerfile: Dockerfile.generic
+    container_name: generic-webhook
+    ports:
+      - "8083:8083"
+    environment:
+      - DATABASE_PATH=/data/alerts.db
+      - WEBHOOK_ENDPOINTS=${WEBHOOK_ENDPOINTS:-}
+      - PORT=8083
+      - DEBUG=${DEBUG:-false}
+    volumes:
+      - ./generic-webhook.py:/app/app.py:ro
+      - ./requirements.txt:/app/requirements.txt:ro
+      - webhook_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Test AlertManager instance
+  test-alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: test-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./test-alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--web.external-url=http://localhost:9093"
+      - "--cluster.listen-address="
+    depends_on:
+      - slack-webhook
+      - pagerduty-webhook
+      - email-webhook
+      - generic-webhook
+
+  # Webhook testing service
+  webhook-tester:
+    image: alpine:latest
+    container_name: webhook-tester
+    volumes:
+      - ./test-alerts.sh:/test-alerts.sh:ro
+    command: |
+      sh -c 'apk add --no-cache curl jq &&
+             chmod +x /test-alerts.sh &&
+             echo "Webhook testing service ready" &&
+             echo "Run: docker exec webhook-tester /test-alerts.sh" &&
+             tail -f /dev/null'
+    depends_on:
+      - slack-webhook
+      - pagerduty-webhook
+      - email-webhook
+      - generic-webhook
+
+volumes:
+  webhook_data:
+
+networks:
+  default:
+    driver: bridge

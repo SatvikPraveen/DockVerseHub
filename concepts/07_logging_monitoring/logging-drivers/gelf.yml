@@ -1,0 +1,281 @@
+# 07_logging_monitoring/logging-drivers/gelf.yml
+
+version: '3.8'
+
+services:
+  # Graylog server (GELF receiver)
+  graylog:
+    image: graylog/graylog:5.2
+    container_name: graylog-server
+    hostname: graylog-server
+    environment:
+      - GRAYLOG_PASSWORD_SECRET=somepasswordpepper
+      - GRAYLOG_ROOT_PASSWORD_SHA2=8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918  # "admin"
+      - GRAYLOG_HTTP_BIND_ADDRESS=0.0.0.0:9000
+      - GRAYLOG_HTTP_EXTERNAL_URI=http://localhost:9000/
+      - GRAYLOG_ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - GRAYLOG_MONGODB_URI=mongodb://mongo/graylog
+    entrypoint: /usr/bin/tini -- wait-for-it elasticsearch:9200 -- /docker-entrypoint.sh
+    restart: always
+    depends_on:
+      - mongo
+      - elasticsearch
+    ports:
+      - "9000:9000"    # Graylog web interface
+      - "12201:12201"  # GELF TCP
+      - "12201:12201/udp"  # GELF UDP
+      - "1514:1514"    # Syslog TCP
+      - "1514:1514/udp"  # Syslog UDP
+
+  # MongoDB for Graylog metadata
+  mongo:
+    image: mongo:6.0
+    container_name: graylog-mongo
+    volumes:
+      - mongo_data:/data/db
+
+  # Elasticsearch for log storage
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: graylog-elasticsearch
+    environment:
+      - http.host=0.0.0.0
+      - transport.host=localhost
+      - network.host=0.0.0.0
+      - "ES_JAVA_OPTS=-Dlog4j2.formatMsgNoLookups=true -Xms512m -Xmx512m"
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - action.auto_create_index=false
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  # Web application using GELF logging
+  gelf-web-app:
+    image: nginx:alpine
+    container_name: gelf-nginx-demo
+    ports:
+      - "8093:80"
+    logging:
+      driver: "gelf"
+      options:
+        gelf-address: "udp://localhost:12201"
+        tag: "nginx-demo"
+        gelf-compression-type: "gzip"
+        gelf-compression-level: "6"
+    depends_on:
+      - graylog
+
+  # Python application with GELF logging and custom fields
+  gelf-python-app:
+    image: python:3.11-alpine
+    container_name: gelf-python-demo
+    logging:
+      driver: "gelf"
+      options:
+        gelf-address: "udp://graylog:12201"
+        tag: "python-app"
+        gelf-compression-type: "gzip"
+        labels: "service,version,environment"
+        env: "LOG_LEVEL,APP_NAME"
+    labels:
+      - "service=demo-python-app"
+      - "version=1.2.3"
+      - "environment=development"
+    environment:
+      - LOG_LEVEL=INFO
+      - APP_NAME=gelf-demo
+    command: |
+      sh -c 'pip install --no-cache-dir requests pygelf &&
+             cat > /app.py << "EOF"
+import time
+import json
+import random
+import logging
+from datetime import datetime
+from pygelf import GelfTcpHandler, GelfUdpHandler
+
+# Configure GELF handler for additional structured logging
+gelf_handler = GelfUdpHandler(host="graylog", port=12201)
+gelf_handler.setFormatter(logging.Formatter("%(message)s"))
+
+logger = logging.getLogger("gelf-python-app")
+logger.setLevel(logging.INFO)
+logger.addHandler(gelf_handler)
+
+def generate_structured_logs():
+    """Generate structured logs with custom GELF fields"""
+    while True:
+        events = [
+            {
+                "event_type": "user_activity",
+                "action": random.choice(["login", "logout", "page_view", "button_click"]),
+                "user_id": random.randint(1000, 9999),
+                "session_id": f"sess_{random.randint(100000, 999999)}",
+                "ip_address": f"192.168.1.{random.randint(1, 254)}",
+                "user_agent": "Mozilla/5.0 (compatible; Demo-Client/1.0)",
+                "response_time_ms": random.randint(50, 2000)
+            },
+            {
+                "event_type": "api_call",
+                "method": random.choice(["GET", "POST", "PUT", "DELETE"]),
+                "endpoint": random.choice(["/api/users", "/api/orders", "/api/products", "/api/reports"]),
+                "status_code": random.choice([200, 201, 400, 401, 404, 500]),
+                "request_size": random.randint(100, 5000),
+                "response_size": random.randint(200, 10000),
+                "duration": random.randint(10, 1000)
+            },
+            {
+                "event_type": "database_query",
+                "query_type": random.choice(["SELECT", "INSERT", "UPDATE", "DELETE"]),
+                "table_name": random.choice(["users", "orders", "products", "audit_logs"]),
+                "execution_time": random.randint(5, 500),
+                "rows_processed": random.randint(0, 1000),
+                "cache_hit": random.choice([True, False])
+            },
+            {
+                "event_type": "error",
+                "error_level": random.choice(["WARNING", "ERROR", "CRITICAL"]),
+                "error_code": random.choice(["ERR_001", "ERR_002", "ERR_003"]),
+                "error_message": "Sample error message for demonstration",
+                "component": random.choice(["auth", "database", "api", "cache"]),
+                "retry_count": random.randint(0, 3)
+            },
+            {
+                "event_type": "performance_metric",
+                "metric_name": random.choice(["cpu_usage", "memory_usage", "disk_io", "network_io"]),
+                "metric_value": random.uniform(0.1, 99.9),
+                "metric_unit": random.choice(["%", "MB", "MB/s", "req/s"]),
+                "threshold_exceeded": random.choice([True, False])
+            }
+        ]
+        
+        event_data = random.choice(events)
+        
+        # Add common fields
+        event_data.update({
+            "timestamp": datetime.utcnow().isoformat(),
+            "application": "gelf-demo-app",
+            "version": "1.2.3",
+            "environment": "development",
+            "hostname": "python-container",
+            "process_id": 12345,
+            "thread_id": random.randint(1, 10)
+        })
+        
+        # Determine log level
+        level = logging.ERROR if event_data.get("event_type") == "error" else logging.INFO
+        
+        # Log with structured data (this goes to GELF)
+        logger.log(level, json.dumps(event_data), extra=event_data)
+        
+        # Also print to stdout (captured by Docker GELF driver)
+        print(json.dumps(event_data))
+        
+        time.sleep(random.randint(2, 8))
+
+if __name__ == "__main__":
+    print("Starting GELF Python application...")
+    logger.info("Application started", extra={
+        "event_type": "application_start",
+        "application": "gelf-demo-app",
+        "version": "1.2.3"
+    })
+    generate_structured_logs()
+EOF
+             python /app.py'
+    depends_on:
+      - graylog
+
+  # Multi-container application with different GELF configurations
+  gelf-database:
+    image: postgres:15-alpine
+    container_name: gelf-postgres-demo
+    environment:
+      - POSTGRES_DB=demo
+      - POSTGRES_USER=demo
+      - POSTGRES_PASSWORD=demo123
+    logging:
+      driver: "gelf"
+      options:
+        gelf-address: "tcp://graylog:12201"
+        tag: "postgres-db"
+        labels: "service,component"
+        env: "POSTGRES_DB"
+    labels:
+      - "service=database"
+      - "component=postgresql"
+    depends_on:
+      - graylog
+
+  gelf-redis:
+    image: redis:7-alpine
+    container_name: gelf-redis-demo
+    logging:
+      driver: "gelf"
+      options:
+        gelf-address: "udp://graylog:12201"
+        tag: "redis-cache"
+        gelf-compression-type: "none"
+        labels: "service,component"
+    labels:
+      - "service=cache"
+      - "component=redis"
+    depends_on:
+      - graylog
+
+  # Log generator for testing
+  gelf-log-generator:
+    image: alpine:latest
+    container_name: gelf-log-generator
+    logging:
+      driver: "gelf"
+      options:
+        gelf-address: "udp://graylog:12201"
+        tag: "log-generator"
+        gelf-compression-type: "gzip"
+    command: |
+      sh -c 'echo "=== GELF Log Generator Started ===" &&
+             while true; do
+               LEVEL=$$(echo "INFO WARNING ERROR" | tr " " "\n" | shuf -n 1) &&
+               MESSAGE="Test log message $$LEVEL at $$(date)" &&
+               echo "[$$(date)] $$LEVEL: $$MESSAGE" &&
+               sleep $$(shuf -i 3-10 -n 1)
+             done'
+    depends_on:
+      - graylog
+
+  # Demo client to generate HTTP traffic
+  traffic-generator:
+    image: alpine:latest
+    container_name: gelf-traffic-generator
+    command: |
+      sh -c 'apk add --no-cache curl &&
+             echo "=== GELF Traffic Generator ===" &&
+             echo "Waiting for services to start..." &&
+             sleep 20 &&
+             while true; do
+               echo "Generating traffic to nginx..." &&
+               for i in $$(seq 1 5); do
+                 curl -s http://gelf-web-app/ > /dev/null &&
+                 sleep 1
+               done &&
+               sleep 10
+             done'
+    depends_on:
+      - gelf-web-app
+
+volumes:
+  mongo_data:
+  es_data:
+
+networks:
+  default:
+    driver: bridge

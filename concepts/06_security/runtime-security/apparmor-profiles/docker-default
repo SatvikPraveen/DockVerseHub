@@ -1,0 +1,72 @@
+# File Location: concepts/06_security/runtime-security/apparmor-profiles/docker-default
+
+#include <tunables/global>
+
+profile docker-default flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  # Network access
+  network,
+  
+  # Allow capability changes
+  capability,
+  
+  # Deny dangerous capabilities
+  deny capability mac_admin,
+  deny capability mac_override,
+  deny capability sys_admin,
+  deny capability sys_module,
+  deny capability sys_rawio,
+  deny capability sys_time,
+  deny capability audit_control,
+  deny capability audit_write,
+  
+  # Filesystem access
+  file,
+  
+  # Deny sensitive host paths
+  deny /bin/su x,
+  deny /usr/bin/sudo x,
+  deny /etc/shadow r,
+  deny /etc/sudoers r,
+  deny /proc/sys/kernel/core_pattern w,
+  deny /proc/sysrq-trigger w,
+  deny /sys/firmware/efi/efivars/ w,
+  deny /sys/kernel/security/ w,
+  
+  # Container-specific permissions
+  /dev/null rw,
+  /dev/zero rw,
+  /dev/full rw,
+  /dev/random r,
+  /dev/urandom r,
+  /dev/tty rw,
+  /dev/console rw,
+  /dev/pts/** rw,
+  
+  # Allow container filesystem
+  /** rw,
+  
+  # Mount restrictions
+  deny mount fstype=proc -> /proc/**,
+  deny mount fstype=sysfs -> /sys/**,
+  deny mount fstype=debugfs,
+  deny mount fstype=securityfs,
+  deny mount fstype=tracefs,
+  deny mount fstype=bpf,
+  
+  # Process restrictions
+  deny ptrace,
+  deny signal,
+  
+  # Allow specific executables
+  /bin/** ix,
+  /sbin/** ix,
+  /usr/bin/** ix,
+  /usr/sbin/** ix,
+  
+  # Deny sensitive host binaries
+  deny /sbin/init x,
+  deny /usr/sbin/service x,
+  deny /usr/sbin/update-rc.d x,
+}

@@ -1,0 +1,452 @@
+# 10_ci_cd_integration/azure-devops/container-jobs.yml
+
+# Azure DevOps Container-based Jobs
+# Advanced container job configurations and patterns
+
+trigger: none
+pr: none
+
+variables:
+  containerRegistry: "your-acr.azurecr.io"
+  vmImageName: "ubuntu-latest"
+
+stages:
+  - stage: ContainerJobs
+    displayName: "Container-based Job Examples"
+
+    jobs:
+      # Basic container job
+      - job: BasicContainerJob
+        displayName: "Basic Container Job"
+        pool:
+          vmImage: $(vmImageName)
+        container: node:18-alpine
+
+        steps:
+          - script: |
+              node --version
+              npm --version
+              echo "Running in Node.js container"
+            displayName: "Node.js Version Check"
+
+          - script: |
+              npm ci --prefer-offline
+              npm run build
+              npm test
+            displayName: "Build and Test"
+
+      # Container with custom registry
+      - job: CustomRegistryJob
+        displayName: "Custom Registry Container"
+        pool:
+          vmImage: $(vmImageName)
+        container:
+          image: $(containerRegistry)/build-tools:latest
+          endpoint: "ACR-Connection"
+          options: "--user root --privileged"
+
+        steps:
+          - script: |
+              echo "Running in custom build container"
+              docker --version
+              kubectl version --client
+            displayName: "Tool Versions"
+
+      # Multi-container job with services
+      - job: MultiContainerJob
+        displayName: "Multi-container with Services"
+        pool:
+          vmImage: $(vmImageName)
+        container: node:18-alpine
+
+        services:
+          postgres:
+            image: postgres:15-alpine
+            env:
+              POSTGRES_USER: testuser
+              POSTGRES_PASSWORD: testpass
+              POSTGRES_DB: testdb
+            ports:
+              - 5432:5432
+            options: >-
+              --health-cmd "pg_isready -U testuser -d testdb"
+              --health-interval 10s
+              --health-timeout 5s
+              --health-retries 5
+
+          redis:
+            image: redis:7-alpine
+            ports:
+              - 6379:6379
+            options: >-
+              --health-cmd "redis-cli ping"
+              --health-interval 10s
+              --health-timeout 5s
+              --health-retries 5
+
+          elasticsearch:
+            image: elasticsearch:8.8.0
+            env:
+              discovery.type: single-node
+              xpack.security.enabled: false
+              ES_JAVA_OPTS: -Xms512m -Xmx512m
+            ports:
+              - 9200:9200
+            options: >-
+              --health-cmd "curl -f http://localhost:9200/_health || exit 1"
+              --health-interval 30s
+              --health-timeout 10s
+              --health-retries 5
+
+        steps:
+          - script: |
+              # Install dependencies
+              npm ci --prefer-offline
+
+              # Wait for services to be ready
+              until nc -z postgres 5432; do sleep 1; done
+              until nc -z redis 6379; do sleep 1; done
+              until nc -z elasticsearch 9200; do sleep 1; done
+
+              echo "All services are ready"
+            displayName: "Setup and Wait for Services"
+
+          - script: |
+              # Run integration tests with all services
+              export DATABASE_URL=postgres://testuser:testpass@postgres:5432/testdb
+              export REDIS_URL=redis://redis:6379
+              export ELASTICSEARCH_URL=http://elasticsearch:9200
+
+              npm run test:integration
+            displayName: "Integration Tests with Services"
+
+      # Container job with volume mounts
+      - job: VolumeContainerJob
+        displayName: "Container with Volume Mounts"
+        pool:
+          vmImage: $(vmImageName)
+        container:
+          image: alpine:latest
+          options: "-v /tmp:/host-tmp -v $(Build.SourcesDirectory):/workspace"
+
+        steps:
+          - script: |
+              echo "Container filesystem:"
+              df -h
+
+              echo "Mounted volumes:"
+              ls -la /host-tmp
+              ls -la /workspace
+
+              echo "Writing to host volume:"
+              echo "Hello from container" > /host-tmp/container-output.txt
+            displayName: "Volume Mount Operations"
+
+      # Docker-in-Docker container job
+      - job: DockerInDockerJob
+        displayName: "Docker-in-Docker"
+        pool:
+          vmImage: $(vmImageName)
+        container:
+          image: docker:24.0.5-dind
+          options: "--privileged"
+
+        steps:
+          - script: |
+              # Start Docker daemon
+              dockerd-entrypoint.sh &
+
+              # Wait for Docker daemon
+              timeout 30 bash -c 'until docker info >/dev/null 2>&1; do sleep 1; done'
+
+              echo "Docker daemon is ready"
+              docker --version
+            displayName: "Start Docker Daemon"
+
+          - script: |
+              # Build test image
+              docker build -t test-image .
+
+              # Run container
+              docker run --rm test-image echo "Hello from DinD"
+
+              # Clean up
+              docker system prune -f
+            displayName: "Docker Operations"
+
+      # Container job matrix
+      - job: ContainerMatrix
+        displayName: "Container Job Matrix"
+        pool:
+          vmImage: $(vmImageName)
+
+        strategy:
+          matrix:
+            Node16:
+              containerImage: "node:16-alpine"
+              nodeVersion: "16"
+            Node18:
+              containerImage: "node:18-alpine"
+              nodeVersion: "18"
+            Node20:
+              containerImage: "node:20-alpine"
+              nodeVersion: "20"
+
+        container: $(containerImage)
+
+        steps:
+          - script: |
+              echo "Testing with Node.js $(nodeVersion)"
+              node --version
+              npm --version
+            displayName: "Node Version Check"
+
+          - script: |
+              npm ci --prefer-offline
+              npm test
+            displayName: "Run Tests"
+
+      # Container job with secrets
+      - job: SecureContainerJob
+        displayName: "Container with Secrets"
+        pool:
+          vmImage: $(vmImageName)
+        container:
+          image: alpine:latest
+          env:
+            SECRET_VALUE: $(secret-variable)
+            API_KEY: $(api-key)
+
+        steps:
+          - script: |
+              echo "Container has access to secrets (values hidden)"
+              echo "SECRET_VALUE length: ${#SECRET_VALUE}"
+              echo "API_KEY length: ${#API_KEY}"
+            displayName: "Secret Verification"
+            env:
+              SECRET_VALUE: $(secret-variable)
+              API_KEY: $(api-key)
+
+      # Performance testing container
+      - job: PerformanceTestJob
+        displayName: "Performance Testing Container"
+        pool:
+          vmImage: $(vmImageName)
+        container:
+          image: loadimpact/k6:latest
+          options: "--user root"
+
+        steps:
+          - script: |
+              echo "Running performance tests with K6"
+              k6 version
+            displayName: "K6 Version"
+
+          - script: |
+              # Create simple performance test
+              cat > load-test.js << 'EOF'
+              import http from 'k6/http';
+              import { check } from 'k6';
+
+              export let options = {
+                stages: [
+                  { duration: '30s', target: 10 },
+                  { duration: '1m', target: 50 },
+                  { duration: '30s', target: 0 },
+                ],
+              };
+
+              export default function() {
+                let response = http.get('https://httpbin.org/get');
+                check(response, {
+                  'status is 200': (r) => r.status === 200,
+                  'response time < 500ms': (r) => r.timings.duration < 500,
+                });
+              }
+              EOF
+
+              # Run performance test
+              k6 run --out json=results.json load-test.js
+            displayName: "Run Load Test"
+
+          - publish: results.json
+            artifact: "performance-results"
+            displayName: "Publish Performance Results"
+
+      # Security scanning container
+      - job: SecurityScanJob
+        displayName: "Security Scanning Container"
+        pool:
+          vmImage: $(vmImageName)
+        container:
+          image: aquasec/trivy:latest
+          options: "--user root"
+
+        steps:
+          - script: |
+              trivy --version
+              echo "Running security scans"
+            displayName: "Trivy Version"
+
+          - script: |
+              # Scan filesystem
+              trivy fs --format json -o fs-scan.json .
+
+              # Scan for secrets
+              trivy fs --scanners secret --format json -o secret-scan.json .
+
+              echo "Security scans completed"
+            displayName: "Security Scans"
+
+          - publish: |
+              fs-scan.json
+              secret-scan.json
+            artifact: "security-scan-results"
+            displayName: "Publish Security Results"
+
+      # Database migration container
+      - job: MigrationJob
+        displayName: "Database Migration"
+        pool:
+          vmImage: $(vmImageName)
+        container:
+          image: migrate/migrate:latest
+          options: "--user root"
+
+        services:
+          postgres:
+            image: postgres:15-alpine
+            env:
+              POSTGRES_USER: migrator
+              POSTGRES_PASSWORD: migratorpass
+              POSTGRES_DB: appdb
+            ports:
+              - 5432:5432
+
+        steps:
+          - script: |
+              # Wait for database
+              until nc -z postgres 5432; do sleep 1; done
+              echo "Database is ready"
+            displayName: "Wait for Database"
+
+          - script: |
+              # Run database migrations
+              migrate -path ./migrations \
+                -database "postgres://migrator:migratorpass@postgres:5432/appdb?sslmode=disable" \
+                up
+
+              echo "Migrations completed"
+            displayName: "Run Migrations"
+
+      # Build tools container
+      - job: BuildToolsJob
+        displayName: "Build Tools Container"
+        pool:
+          vmImage: $(vmImageName)
+        container:
+          image: $(containerRegistry)/build-tools:latest
+          endpoint: "ACR-Connection"
+
+        steps:
+          - script: |
+              echo "Available build tools:"
+              docker --version
+              kubectl version --client
+              helm version
+              terraform --version
+              ansible --version
+            displayName: "Tool Inventory"
+
+          - script: |
+              # Use build tools for deployment
+              echo "Deploying with custom build tools"
+              # Add deployment logic here
+            displayName: "Deploy with Tools"
+
+      # Cleanup job
+      - job: CleanupJob
+        displayName: "Cleanup Container Resources"
+        pool:
+          vmImage: $(vmImageName)
+        container: alpine:latest
+        dependsOn:
+          - BasicContainerJob
+          - MultiContainerJob
+          - DockerInDockerJob
+        condition: always()
+
+        steps:
+          - script: |
+              echo "Cleaning up container resources"
+              # Add cleanup logic here
+              echo "Cleanup completed"
+            displayName: "Cleanup Resources"
+
+  # Container job templates
+  - template: container-job-template.yml
+    parameters:
+      jobName: "TemplatedContainerJob"
+      containerImage: "node:18-alpine"
+      testCommand: "npm test"
+
+  # Multi-stage container deployment
+  - stage: ContainerDeploy
+    displayName: "Container Deployment"
+    dependsOn: ContainerJobs
+    condition: succeeded()
+
+    jobs:
+      - deployment: ContainerDeployment
+        displayName: "Deploy Container Application"
+        pool:
+          vmImage: $(vmImageName)
+        environment: "container-environment"
+        container:
+          image: $(containerRegistry)/deployment-tools:latest
+          endpoint: "ACR-Connection"
+
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - script: |
+                    echo "Deploying containerized application"
+                    kubectl version --client
+                    helm version
+                  displayName: "Deployment Tools Check"
+
+                - script: |
+                    # Deploy with Helm
+                    helm upgrade --install myapp ./helm-chart \
+                      --namespace production \
+                      --set image.tag=$(Build.BuildNumber) \
+                      --set image.repository=$(containerRegistry)/myapp
+                  displayName: "Deploy with Helm"
+
+  # Container job with custom workspace
+  - stage: CustomWorkspace
+    displayName: "Custom Workspace Container"
+
+    jobs:
+      - job: CustomWorkspaceJob
+        displayName: "Custom Workspace"
+        pool:
+          vmImage: $(vmImageName)
+        container:
+          image: alpine:latest
+          options: "-w /custom-workspace -v $(Build.SourcesDirectory):/custom-workspace"
+
+        steps:
+          - script: |
+              pwd
+              ls -la
+              echo "Working in custom workspace: /custom-workspace"
+            displayName: "Custom Workspace Check"
+
+          - script: |
+              # Custom build process
+              echo "Running custom build in workspace"
+              mkdir -p build-output
+              echo "Build artifact" > build-output/artifact.txt
+            displayName: "Custom Build Process"

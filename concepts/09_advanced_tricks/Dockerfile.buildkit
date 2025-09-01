@@ -1,0 +1,261 @@
+# 09_advanced_tricks/Dockerfile.buildkit
+
+# syntax=docker/dockerfile:1.6-labs
+# Enable BuildKit experimental features
+
+# Build arguments for flexibility
+ARG NODE_VERSION=18
+ARG ALPINE_VERSION=3.18
+ARG APP_ENV=production
+
+# Base image with version pinning
+FROM node:${NODE_VERSION}-alpine${ALPINE_VERSION} AS base
+
+# Install system dependencies with mount cache
+RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
+    --mount=type=cache,target=/var/lib/apk,sharing=locked \
+    apk add --no-cache \
+        ca-certificates \
+        tzdata \
+        curl \
+        jq
+
+# Create application directory
+WORKDIR /app
+
+# Development stage with full toolchain
+FROM base AS development
+
+# Install development dependencies with cache mount
+RUN --mount=type=cache,target=/var/cache/apk \
+    apk add --no-cache \
+        git \
+        python3 \
+        make \
+        g++ \
+        linux-headers
+
+# Copy package files and use npm cache mount
+COPY package*.json ./
+
+# Install all dependencies with cache mounts
+RUN --mount=type=cache,target=/root/.npm \
+    --mount=type=cache,target=/app/node_modules/.cache \
+    npm ci --include=dev
+
+# Copy source code
+COPY . .
+
+# Development command
+CMD ["npm", "run", "dev"]
+
+# Dependencies stage - optimized for caching
+FROM base AS dependencies
+
+# Copy package files
+COPY package*.json ./
+
+# Install production dependencies with multiple cache optimizations
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    --mount=type=cache,target=/app/node_modules/.cache,sharing=locked \
+    --mount=type=secret,id=npmrc,target=/root/.npmrc \
+    npm ci --only=production --frozen-lockfile --no-audit
+
+# Build stage with build caching
+FROM dependencies AS builder
+
+# Copy source code for building
+COPY . .
+
+# Use cache mount for build artifacts
+RUN --mount=type=cache,target=/app/.next/cache \
+    --mount=type=cache,target=/root/.npm \
+    npm run build
+
+# Create optimized directory structure
+RUN mkdir -p /app/dist && \
+    cp -r build/* /app/dist/ 2>/dev/null || \
+    cp -r dist/* /app/dist/ 2>/dev/null || \
+    cp -r .next /app/dist/ 2>/dev/null || true
+
+# Production stage with security hardening
+FROM alpine:${ALPINE_VERSION} AS production
+
+# Install minimal runtime dependencies
+RUN --mount=type=cache,target=/var/cache/apk \
+    apk add --no-cache \
+        nodejs \
+        npm \
+        ca-certificates \
+        tini
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nextjs -u 1001 -G nodejs
+
+# Set up application directory
+WORKDIR /app
+
+# Copy production dependencies
+COPY --from=dependencies --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --from=dependencies --chown=nextjs:nodejs /app/package.json ./package.json
+
+# Copy built application
+COPY --from=builder --chown=nextjs:nodejs /app/dist ./dist
+
+# Advanced BuildKit features demonstration
+
+# Multi-platform build support
+FROM production AS multi-platform
+# This stage can be built for multiple architectures
+
+# Use BuildKit secrets for sensitive build data
+FROM production AS secrets-demo
+
+# Access build secrets securely (never stored in image layers)
+RUN --mount=type=secret,id=api_key \
+    --mount=type=secret,id=build_token \
+    if [ -f /run/secrets/api_key ]; then \
+        echo "API key available during build" && \
+        # Use API key for authenticated downloads, etc.
+        API_KEY=$(cat /run/secrets/api_key) && \
+        # Perform authenticated operations
+        echo "Build completed with authentication"; \
+    fi
+
+# SSH mount for private repository access
+FROM production AS ssh-demo
+
+# Access private repositories using SSH agent forwarding
+RUN --mount=type=ssh \
+    mkdir -p ~/.ssh && \
+    ssh-keyscan github.com >> ~/.ssh/known_hosts && \
+    # Clone private repository or perform SSH operations
+    echo "SSH operations completed"
+
+# BuildKit mount types demonstration
+FROM production AS mount-demo
+
+# Cache mount for package managers
+RUN --mount=type=cache,target=/var/cache/apk \
+    apk update
+
+# Bind mount for accessing host files during build
+RUN --mount=type=bind,source=scripts,target=/scripts \
+    if [ -f /scripts/setup.sh ]; then \
+        chmod +x /scripts/setup.sh && \
+        /scripts/setup.sh; \
+    fi
+
+# Tmpfs mount for temporary operations
+RUN --mount=type=tmpfs,target=/tmp/build \
+    cd /tmp/build && \
+    # Perform temporary operations with in-memory filesystem
+    echo "Fast temporary operations" > temp_file && \
+    # Process temp_file
+    rm -f temp_file
+
+# Final optimized production stage
+FROM production AS final
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:3000/health || exit 1
+
+# Switch to non-root user
+USER nextjs
+
+# Expose port
+EXPOSE 3000
+
+# Use tini as init system for proper signal handling
+ENTRYPOINT ["/sbin/tini", "--"]
+
+# Start application
+CMD ["node", "dist/server.js"]
+
+# Advanced BuildKit cache optimization
+FROM final AS cache-optimized
+
+# Create cache-friendly layer structure
+RUN --mount=type=cache,target=/app/.cache,uid=1001,gid=1001 \
+    mkdir -p /app/.cache && \
+    chown nextjs:nodejs /app/.cache
+
+# Use cache mount for application data
+USER nextjs
+RUN --mount=type=cache,target=/app/.cache,uid=1001,gid=1001 \
+    echo "Application cache initialized"
+
+# Multi-stage build with selective copying
+FROM final AS selective-copy
+
+# Copy only specific files needed for runtime
+COPY --from=builder --chown=nextjs:nodejs /app/dist/server.js ./
+COPY --from=builder --chown=nextjs:nodejs /app/dist/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/dist/views ./views
+
+# Exclude unnecessary files that might have been copied
+RUN rm -rf \
+    ./src \
+    ./tests \
+    ./.git \
+    ./docs \
+    ./*.md \
+    ./Dockerfile* \
+    ./.dockerignore
+
+# Build-time variable expansion with BuildKit
+FROM final AS build-vars
+
+ARG BUILD_DATE
+ARG GIT_COMMIT
+ARG VERSION
+
+# Store build information
+RUN printf '{\n  "build_date": "%s",\n  "git_commit": "%s",\n  "version": "%s"\n}\n' \
+    "${BUILD_DATE}" "${GIT_COMMIT}" "${VERSION}" > /app/build-info.json
+
+# Add labels with build arguments
+LABEL build.date="${BUILD_DATE}" \
+      build.commit="${GIT_COMMIT}" \
+      build.version="${VERSION}"
+
+# Target selection based on build argument
+FROM ${APP_ENV} AS runtime
+
+# This allows building different targets based on APP_ENV:
+# docker build --build-arg APP_ENV=development --target runtime .
+# docker build --build-arg APP_ENV=production --target runtime .
+
+# Default target (used when no --target specified)
+FROM final
+
+# Build instructions:
+# 
+# Basic build:
+# docker build .
+#
+# Development build:
+# docker build --target development .
+#
+# Production build with BuildKit features:
+# DOCKER_BUILDKIT=1 docker build \
+#   --secret id=npmrc,src=$HOME/.npmrc \
+#   --ssh default \
+#   --build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+#   --build-arg GIT_COMMIT=$(git rev-parse HEAD) \
+#   --build-arg VERSION=1.0.0 \
+#   .
+#
+# Multi-platform build:
+# docker buildx build \
+#   --platform linux/amd64,linux/arm64 \
+#   --push \
+#   -t myapp:latest .
+#
+# Cache optimization build:
+# docker build \
+#   --cache-from type=registry,ref=myapp:cache \
+#   --cache-to type=registry,ref=myapp:cache,mode=max \
+#   -t myapp:latest .

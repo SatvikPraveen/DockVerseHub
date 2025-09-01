@@ -1,0 +1,530 @@
+// 10_ci_cd_integration/jenkins/Jenkinsfile
+
+pipeline {
+    agent {
+        label 'docker'
+    }
+    
+    environment {
+        DOCKER_REGISTRY = 'your-registry.com'
+        DOCKER_REPO = 'your-org/app-name'
+        DOCKER_CREDENTIALS = 'docker-registry-credentials'
+        KUBECONFIG_CREDENTIALS = 'kubeconfig-credentials'
+        SONARQUBE_TOKEN = credentials('sonarqube-token')
+        SLACK_WEBHOOK = credentials('slack-webhook-url')
+        
+        // Docker BuildKit
+        DOCKER_BUILDKIT = '1'
+        COMPOSE_DOCKER_CLI_BUILD = '1'
+        
+        // Build metadata
+        BUILD_DATE = sh(script: "date -u +'%Y-%m-%dT%H:%M:%SZ'", returnStdout: true).trim()
+        GIT_COMMIT_SHORT = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+        
+        // Dynamic versioning
+        IMAGE_TAG = "${env.BRANCH_NAME == 'main' ? 'latest' : env.BRANCH_NAME}-${BUILD_NUMBER}-${GIT_COMMIT_SHORT}"
+        FULL_IMAGE_NAME = "${DOCKER_REGISTRY}/${DOCKER_REPO}:${IMAGE_TAG}"
+    }
+    
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 60, unit: 'MINUTES')
+        timestamps()
+        ansiColor('xterm')
+        disableConcurrentBuilds()
+        retry(3)
+    }
+    
+    triggers {
+        // Poll SCM every 5 minutes for changes
+        pollSCM('H/5 * * * *')
+        
+        // Scheduled builds
+        cron(env.BRANCH_NAME == 'main' ? 'H 2 * * *' : '')
+    }
+    
+    stages {
+        stage('Checkout & Setup') {
+            steps {
+                script {
+                    // Clean workspace
+                    cleanWs()
+                    
+                    // Checkout code
+                    checkout scm
+                    
+                    // Setup build environment
+                    sh '''
+                        echo "=== Build Environment ==="
+                        echo "Branch: ${BRANCH_NAME}"
+                        echo "Build: ${BUILD_NUMBER}"
+                        echo "Commit: ${GIT_COMMIT_SHORT}"
+                        echo "Image: ${FULL_IMAGE_NAME}"
+                        
+                        # Docker version
+                        docker version
+                        docker-compose version
+                        
+                        # Setup BuildKit
+                        docker buildx create --use --name jenkins-builder || true
+                        docker buildx ls
+                    '''
+                }
+            }
+        }
+        
+        stage('Code Quality') {
+            parallel {
+                stage('Lint & Format') {
+                    agent {
+                        docker {
+                            image 'node:18-alpine'
+                            args '-v ${WORKSPACE}:/workspace -w /workspace'
+                        }
+                    }
+                    steps {
+                        sh '''
+                            npm ci --prefer-offline --no-audit
+                            npm run lint
+                            npm run format-check
+                            npm run type-check
+                        '''
+                    }
+                    post {
+                        always {
+                            archiveArtifacts artifacts: 'npm-audit.*', fingerprint: true, allowEmptyArchive: true
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Integration Tests') {
+            steps {
+                script {
+                    // Start test environment
+                    sh '''
+                        docker-compose -f docker-compose.test.yml up -d --build
+                        
+                        # Wait for services
+                        timeout 120 bash -c '
+                            until docker-compose -f docker-compose.test.yml exec -T app curl -f http://localhost:3000/health; do
+                                echo "Waiting for application..."
+                                sleep 5
+                            done
+                        '
+                        
+                        # Run integration tests
+                        docker-compose -f docker-compose.test.yml exec -T app npm run test:integration
+                    '''
+                }
+            }
+            post {
+                always {
+                    sh 'docker-compose -f docker-compose.test.yml down -v --remove-orphans || true'
+                    junit 'integration-test-results.xml'
+                }
+            }
+        }
+        
+        stage('Push to Registry') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'develop'
+                    buildingTag()
+                }
+            }
+            steps {
+                script {
+                    docker.withRegistry("https://${DOCKER_REGISTRY}", "${DOCKER_CREDENTIALS}") {
+                        // Push multi-platform image
+                        sh """
+                            docker buildx build \
+                                --platform linux/amd64,linux/arm64 \
+                                --build-arg BUILDTIME='${BUILD_DATE}' \
+                                --build-arg VERSION='${IMAGE_TAG}' \
+                                --build-arg REVISION='${GIT_COMMIT}' \
+                                --cache-from type=registry,ref=${DOCKER_REGISTRY}/${DOCKER_REPO}:cache \
+                                --cache-to type=registry,ref=${DOCKER_REGISTRY}/${DOCKER_REPO}:cache,mode=max \
+                                --tag ${FULL_IMAGE_NAME} \
+                                --tag ${DOCKER_REGISTRY}/${DOCKER_REPO}:build-${BUILD_NUMBER} \
+                                --push \
+                                .
+                        """
+                        
+                        // Tag latest for main branch
+                        if (env.BRANCH_NAME == 'main') {
+                            sh "docker buildx imagetools create --tag ${DOCKER_REGISTRY}/${DOCKER_REPO}:latest ${FULL_IMAGE_NAME}"
+                        }
+                        
+                        // Generate SBOM
+                        sh """
+                            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+                            syft ${FULL_IMAGE_NAME} -o spdx-json --file sbom.spdx.json
+                        """
+                    }
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'sbom.spdx.json', fingerprint: true
+                }
+            }
+        }
+        
+        stage('Deploy to Staging') {
+            when {
+                branch 'develop'
+            }
+            environment {
+                KUBECONFIG = credentials('kubeconfig-staging')
+            }
+            steps {
+                script {
+                    sh """
+                        kubectl set image deployment/app app=${FULL_IMAGE_NAME} -n staging
+                        kubectl rollout status deployment/app -n staging --timeout=300s
+                        
+                        # Run smoke tests
+                        kubectl port-forward svc/app 8080:80 -n staging &
+                        sleep 10
+                        curl -f http://localhost:8080/health
+                    """
+                }
+            }
+        }
+        
+        stage('Deploy to Production') {
+            when {
+                branch 'main'
+            }
+            environment {
+                KUBECONFIG = credentials('kubeconfig-production')
+            }
+            steps {
+                script {
+                    timeout(time: 10, unit: 'MINUTES') {
+                        input message: 'Deploy to production?', ok: 'Deploy',
+                              parameters: [choice(name: 'STRATEGY', choices: ['blue-green', 'rolling', 'canary'], description: 'Deployment strategy')]
+                    }
+                    
+                    if (params.STRATEGY == 'blue-green') {
+                        sh """
+                            # Blue-green deployment
+                            if kubectl get deployment app-blue -n production >/dev/null 2>&1; then
+                                TARGET="app-green"
+                                CURRENT="app-blue"
+                            else
+                                TARGET="app-blue"
+                                CURRENT="app-green"
+                            fi
+                            
+                            kubectl set image deployment/\$TARGET app=${FULL_IMAGE_NAME} -n production
+                            kubectl scale deployment/\$TARGET --replicas=3 -n production
+                            kubectl rollout status deployment/\$TARGET -n production --timeout=600s
+                            
+                            # Switch traffic
+                            kubectl patch service app -n production -p '{"spec":{"selector":{"version":"'\${TARGET#app-}'"}}}'
+                            
+                            # Scale down old deployment
+                            kubectl scale deployment/\$CURRENT --replicas=0 -n production
+                        """
+                    } else {
+                        sh """
+                            kubectl set image deployment/app app=${FULL_IMAGE_NAME} -n production
+                            kubectl rollout status deployment/app -n production --timeout=600s
+                        """
+                    }
+                    
+                    // Production verification
+                    sh 'curl -f https://api.production.com/health'
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            // Cleanup
+            sh '''
+                docker system prune -f
+                docker buildx prune -f
+            '''
+            
+            // Archive logs
+            archiveArtifacts artifacts: 'logs/**/*.log', fingerprint: true, allowEmptyArchive: true
+        }
+        
+        success {
+            script {
+                // Send success notification
+                def message = """
+                    ✅ Build Success - ${JOB_NAME} #${BUILD_NUMBER}
+                    Branch: ${BRANCH_NAME}
+                    Commit: ${GIT_COMMIT_SHORT}
+                    Image: ${FULL_IMAGE_NAME}
+                    Duration: ${currentBuild.durationString}
+                """.stripIndent()
+                
+                slackSend(
+                    channel: '#deployments',
+                    color: 'good',
+                    message: message,
+                    teamDomain: 'your-team',
+                    token: env.SLACK_WEBHOOK
+                )
+            }
+        }
+        
+        failure {
+            script {
+                def message = """
+                    ❌ Build Failed - ${JOB_NAME} #${BUILD_NUMBER}
+                    Branch: ${BRANCH_NAME}
+                    Commit: ${GIT_COMMIT_SHORT}
+                    Stage: ${env.STAGE_NAME}
+                    Duration: ${currentBuild.durationString}
+                """.stripIndent()
+                
+                slackSend(
+                    channel: '#alerts',
+                    color: 'danger',
+                    message: message,
+                    teamDomain: 'your-team',
+                    token: env.SLACK_WEBHOOK
+                )
+            }
+        }
+        
+        unstable {
+            script {
+                slackSend(
+                    channel: '#deployments',
+                    color: 'warning',
+                    message: "⚠️ Build Unstable - ${JOB_NAME} #${BUILD_NUMBER}",
+                    teamDomain: 'your-team',
+                    token: env.SLACK_WEBHOOK
+                )
+            }
+        }
+        
+        changed {
+            script {
+                def status = currentBuild.result ?: 'SUCCESS'
+                def previousStatus = currentBuild.previousBuild?.result ?: 'SUCCESS'
+                
+                if (status != previousStatus) {
+                    slackSend(
+                        channel: '#deployments',
+                        color: status == 'SUCCESS' ? 'good' : 'danger',
+                        message: "📈 Build Status Changed: ${previousStatus} → ${status} - ${JOB_NAME} #${BUILD_NUMBER}",
+                        teamDomain: 'your-team',
+                        token: env.SLACK_WEBHOOK
+                    )
+                }
+            }
+                            publishHTML([
+                                allowMissing: false,
+                                alwaysLinkToLastBuild: true,
+                                keepAll: true,
+                                reportDir: 'lint-results',
+                                reportFiles: 'index.html',
+                                reportName: 'Lint Report'
+                            ])
+                        }
+                    }
+                }
+                
+                stage('SonarQube Analysis') {
+                    when {
+                        anyOf {
+                            branch 'main'
+                            branch 'develop'
+                            changeRequest()
+                        }
+                    }
+                    steps {
+                        script {
+                            def scannerHome = tool 'SonarQube Scanner'
+                            withSonarQubeEnv('SonarQube') {
+                                sh """
+                                    ${scannerHome}/bin/sonar-scanner \
+                                        -Dsonar.projectKey=${JOB_NAME} \
+                                        -Dsonar.projectName="${JOB_NAME}" \
+                                        -Dsonar.projectVersion=${BUILD_NUMBER} \
+                                        -Dsonar.sources=src \
+                                        -Dsonar.tests=tests \
+                                        -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
+                                        -Dsonar.exclusions=node_modules/**,dist/**,coverage/**
+                                """
+                            }
+                        }
+                    }
+                    post {
+                        always {
+                            // Wait for SonarQube quality gate
+                            timeout(time: 10, unit: 'MINUTES') {
+                                script {
+                                    def qg = waitForQualityGate()
+                                    if (qg.status != 'OK') {
+                                        error "Pipeline aborted due to quality gate failure: ${qg.status}"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Unit Tests') {
+            agent {
+                docker {
+                    image 'node:18-alpine'
+                    args '-v ${WORKSPACE}:/workspace -w /workspace'
+                }
+            }
+            steps {
+                sh '''
+                    npm ci --prefer-offline --no-audit
+                    npm run test:unit -- --coverage --reporter=junit --outputFile=test-results.xml
+                '''
+            }
+            post {
+                always {
+                    // Publish test results
+                    junit 'test-results.xml'
+                    
+                    // Publish coverage
+                    publishHTML([
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'coverage',
+                        reportFiles: 'index.html',
+                        reportName: 'Coverage Report'
+                    ])
+                    
+                    // Cobertura coverage
+                    step([$class: 'CoberturaPublisher',
+                        autoUpdateHealth: false,
+                        autoUpdateStability: false,
+                        coberturaReportFile: 'coverage/cobertura-coverage.xml',
+                        failUnhealthy: false,
+                        failUnstable: false,
+                        maxNumberOfBuilds: 0,
+                        onlyStable: false,
+                        sourceEncoding: 'ASCII',
+                        zoomCoverageChart: false
+                    ])
+                }
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    // Build multi-platform image
+                    sh """
+                        docker buildx build \
+                            --platform linux/amd64,linux/arm64 \
+                            --build-arg BUILDTIME='${BUILD_DATE}' \
+                            --build-arg VERSION='${IMAGE_TAG}' \
+                            --build-arg REVISION='${GIT_COMMIT}' \
+                            --build-arg BUILD_NUMBER='${BUILD_NUMBER}' \
+                            --cache-from type=registry,ref=${DOCKER_REGISTRY}/${DOCKER_REPO}:cache \
+                            --cache-to type=registry,ref=${DOCKER_REGISTRY}/${DOCKER_REPO}:cache,mode=max \
+                            --tag ${FULL_IMAGE_NAME} \
+                            --tag ${DOCKER_REGISTRY}/${DOCKER_REPO}:build-${BUILD_NUMBER} \
+                            --load \
+                            .
+                    """
+                    
+                    // Test image
+                    sh """
+                        docker run --rm --name test-container \
+                            -e NODE_ENV=test \
+                            ${FULL_IMAGE_NAME} \
+                            npm run test:smoke
+                    """
+                }
+            }
+            post {
+                always {
+                    // Archive Dockerfile and build context info
+                    archiveArtifacts artifacts: 'Dockerfile*', fingerprint: true
+                    
+                    // Docker image inspection
+                    sh """
+                        docker image inspect ${FULL_IMAGE_NAME} > image-inspect.json
+                        docker history ${FULL_IMAGE_NAME} > image-history.txt
+                    """
+                    archiveArtifacts artifacts: 'image-*.json,image-*.txt', fingerprint: true
+                }
+            }
+        }
+        
+        stage('Security Scanning') {
+            parallel {
+                stage('Container Vulnerability Scan') {
+                    steps {
+                        script {
+                            // Install Trivy
+                            sh '''
+                                curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+                                trivy --version
+                            '''
+                            
+                            // Scan for vulnerabilities
+                            sh """
+                                trivy image --format template --template "@contrib/junit.tpl" -o trivy-results.xml ${FULL_IMAGE_NAME}
+                                trivy image --format json -o trivy-results.json ${FULL_IMAGE_NAME}
+                                
+                                # Fail build on high/critical vulnerabilities
+                                trivy image --exit-code 1 --severity HIGH,CRITICAL ${FULL_IMAGE_NAME}
+                            """
+                        }
+                    }
+                    post {
+                        always {
+                            junit 'trivy-results.xml'
+                            archiveArtifacts artifacts: 'trivy-results.*', fingerprint: true
+                        }
+                    }
+                }
+                
+                stage('Secret Scanning') {
+                    steps {
+                        sh '''
+                            # Install gitleaks
+                            curl -sSfL https://github.com/zricethezav/gitleaks/releases/download/v8.18.0/gitleaks_8.18.0_linux_x64.tar.gz | tar -xzf -
+                            chmod +x gitleaks
+                            
+                            # Scan for secrets
+                            ./gitleaks detect --source . --report-format json --report-path gitleaks-results.json --exit-code 0
+                        '''
+                    }
+                    post {
+                        always {
+                            archiveArtifacts artifacts: 'gitleaks-results.json', fingerprint: true, allowEmptyArchive: true
+                        }
+                    }
+                }
+                
+                stage('Dependency Check') {
+                    agent {
+                        docker {
+                            image 'node:18-alpine'
+                            args '-v ${WORKSPACE}:/workspace -w /workspace'
+                        }
+                    }
+                    steps {
+                        sh '''
+                            npm ci --prefer-offline --no-audit
+                            npm audit --json > npm-audit.json || true
+                            npm audit --parseable | awk -F $'\t' 'NF {print $2 " " $3 " " $4}' > npm-audit-summary.txt || true
+                        '''
+                    }
+                    post {
+                        always {

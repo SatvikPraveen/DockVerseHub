@@ -1,0 +1,94 @@
+# File Location: concepts/02_images_layers/registry/private-registry.yml
+
+version: "3.8"
+
+services:
+  registry:
+    image: registry:2
+    container_name: private-registry
+    ports:
+      - "5000:5000"
+    environment:
+      REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY: /data
+      REGISTRY_HTTP_ADDR: 0.0.0.0:5000
+      REGISTRY_HTTP_TLS_CERTIFICATE: /certs/registry.crt
+      REGISTRY_HTTP_TLS_KEY: /certs/registry.key
+      REGISTRY_AUTH: htpasswd
+      REGISTRY_AUTH_HTPASSWD_PATH: /auth/htpasswd
+      REGISTRY_AUTH_HTPASSWD_REALM: "Registry Realm"
+    volumes:
+      - registry-data:/data
+      - ./certs:/certs:ro
+      - ./auth:/auth:ro
+    restart: unless-stopped
+    networks:
+      - registry-network
+
+  registry-ui:
+    image: joxit/docker-registry-ui:latest
+    container_name: registry-ui
+    ports:
+      - "8080:80"
+    environment:
+      REGISTRY_TITLE: "Private Docker Registry"
+      REGISTRY_URL: "https://registry:5000"
+      DELETE_IMAGES: "true"
+      SHOW_CONTENT_DIGEST: "true"
+      NGINX_PROXY_PASS_URL: "https://registry:5000"
+      SHOW_CATALOG_NB_TAGS: "true"
+      CATALOG_MIN_BRANCHES: "1"
+      CATALOG_MAX_BRANCHES: "1"
+      TAGLIST_PAGE_SIZE: "100"
+      REGISTRY_SECURED: "true"
+      CATALOG_ELEMENTS_LIMIT: "1000"
+    depends_on:
+      - registry
+    networks:
+      - registry-network
+
+  nginx:
+    image: nginx:alpine
+    container_name: registry-nginx
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - registry
+      - registry-ui
+    networks:
+      - registry-network
+
+volumes:
+  registry-data:
+    driver: local
+
+networks:
+  registry-network:
+    driver: bridge
+# Usage Instructions:
+#
+# 1. Create certificates:
+#    mkdir -p certs auth
+#    openssl req -newkey rsa:4096 -nodes -sha256 -keyout certs/registry.key \
+#      -x509 -days 365 -out certs/registry.crt \
+#      -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
+#
+# 2. Create auth file:
+#    docker run --entrypoint htpasswd registry:2 \
+#      -Bbn username password > auth/htpasswd
+#
+# 3. Start the registry:
+#    docker-compose -f private-registry.yml up -d
+#
+# 4. Test login:
+#    docker login localhost:5000
+#
+# 5. Push/pull images:
+#    docker tag myimage localhost:5000/myimage:tag
+#    docker push localhost:5000/myimage:tag
+#
+# 6. Access web UI:
+#    http://localhost:8080

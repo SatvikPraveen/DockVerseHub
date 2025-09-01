@@ -1,0 +1,196 @@
+version: "3.8"
+
+services:
+  # Zipkin server for distributed tracing
+  zipkin:
+    image: openzipkin/zipkin:2.24
+    container_name: zipkin-server
+    ports:
+      - "9411:9411"
+    environment:
+      # Storage configuration - using Elasticsearch for production
+      STORAGE_TYPE: elasticsearch
+      ES_HOSTS: elasticsearch:9200
+      ES_HTTP_LOGGING: BASIC
+      # Uncomment for memory storage (development only)
+      # STORAGE_TYPE: mem
+
+      # Server configuration
+      QUERY_PORT: 9411
+      QUERY_TIMEOUT: 11000
+      QUERY_LOOKBACK: 86400000
+
+      # Collector configuration
+      COLLECTOR_SAMPLE_RATE: 1.0
+
+      # Self-tracing
+      SELF_TRACING_ENABLED: false
+
+      # Logging
+      LOGGING_LEVEL_ROOT: INFO
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - zipkin-network
+    volumes:
+      - zipkin-data:/zipkin
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:9411/health || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Elasticsearch for Zipkin storage
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.9.0
+    container_name: zipkin-elasticsearch
+    environment:
+      # Cluster configuration
+      cluster.name: zipkin-cluster
+      node.name: zipkin-node-1
+
+      # Discovery configuration
+      discovery.type: single-node
+
+      # Memory settings
+      bootstrap.memory_lock: true
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+
+      # Security settings (disabled for development)
+      xpack.security.enabled: false
+      xpack.security.enrollment.enabled: false
+
+      # Index lifecycle management
+      action.auto_create_index: true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    networks:
+      - zipkin-network
+    healthcheck:
+      test:
+        ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # Zipkin dependencies job (runs periodically)
+  zipkin-dependencies:
+    image: openzipkin/zipkin-dependencies:2.5.1
+    container_name: zipkin-dependencies
+    environment:
+      STORAGE_TYPE: elasticsearch
+      ES_HOSTS: elasticsearch:9200
+      ES_NODES_WAN_ONLY: true
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      zipkin:
+        condition: service_healthy
+    networks:
+      - zipkin-network
+    restart: "no"
+    command: >
+      sh -c "
+        echo 'Waiting for Zipkin to be ready...' &&
+        sleep 60 &&
+        echo 'Running dependencies analysis...' &&
+        java -jar zipkin-dependencies.jar
+      "
+
+  # Zipkin UI (alternative lightweight UI)
+  zipkin-lens:
+    image: openzipkin/zipkin-lens:2.24
+    container_name: zipkin-lens
+    ports:
+      - "9412:80"
+    environment:
+      ZIPKIN_BASE_URL: http://zipkin:9411
+    depends_on:
+      zipkin:
+        condition: service_healthy
+    networks:
+      - zipkin-network
+
+  # Example instrumented application
+  zipkin-example-app:
+    build:
+      context: ./example-app
+      dockerfile: Dockerfile
+    container_name: zipkin-example-app
+    environment:
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+      SERVICE_NAME: example-service
+    ports:
+      - "8080:8080"
+    depends_on:
+      zipkin:
+        condition: service_healthy
+    networks:
+      - zipkin-network
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: zipkin-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus-config/prometheus-zipkin.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+      - "--web.enable-admin-api"
+    networks:
+      - zipkin-network
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: zipkin-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: false
+      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana-config/zipkin-dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana-config/zipkin-datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+    networks:
+      - zipkin-network
+
+volumes:
+  zipkin-data:
+  elasticsearch-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  zipkin-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16

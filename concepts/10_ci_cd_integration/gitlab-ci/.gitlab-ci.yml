@@ -1,0 +1,469 @@
+# 10_ci_cd_integration/gitlab-ci/.gitlab-ci.yml
+
+# GitLab CI/CD Pipeline for Docker Applications
+# Comprehensive pipeline with testing, security, and deployment
+
+image: docker:24.0.5
+
+variables:
+  DOCKER_HOST: tcp://docker:2376
+  DOCKER_TLS_CERTDIR: "/certs"
+  DOCKER_TLS_VERIFY: 1
+  DOCKER_CERT_PATH: "$DOCKER_TLS_CERTDIR/client"
+  REGISTRY_IMAGE: $CI_REGISTRY_IMAGE
+  DOCKER_BUILDKIT: 1
+  COMPOSE_DOCKER_CLI_BUILD: 1
+
+services:
+  - docker:24.0.5-dind
+
+stages:
+  - validate
+  - build
+  - test
+  - security
+  - package
+  - deploy-staging
+  - deploy-production
+  - cleanup
+
+# Stage 1: Validation and Code Quality
+code-quality:
+  stage: validate
+  image: node:18-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run lint
+    - npm run type-check
+    - npm run format-check
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - .npm/
+      - node_modules/
+  artifacts:
+    reports:
+      codequality: gl-code-quality-report.json
+    expire_in: 1 week
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+sonarqube-check:
+  stage: validate
+  image: sonarsource/sonar-scanner-cli:latest
+  variables:
+    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"
+    GIT_DEPTH: "0"
+  cache:
+    key: "${CI_JOB_NAME}"
+    paths:
+      - .sonar/cache
+  script:
+    - sonar-scanner
+  allow_failure: true
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+# Stage 2: Docker Build
+docker-build:
+  stage: build
+  before_script:
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+  script:
+    - |
+      # Build multi-stage Docker image
+      docker buildx create --use --name builder
+      docker buildx build \
+        --platform linux/amd64,linux/arm64 \
+        --cache-from type=registry,ref=$CI_REGISTRY_IMAGE:cache \
+        --cache-to type=registry,ref=$CI_REGISTRY_IMAGE:cache,mode=max \
+        --build-arg BUILDTIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+        --build-arg VERSION=$CI_COMMIT_SHORT_SHA \
+        --build-arg REVISION=$CI_COMMIT_SHA \
+        --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA \
+        --tag $CI_REGISTRY_IMAGE:latest \
+        --push \
+        .
+  artifacts:
+    reports:
+      dotenv: build.env
+  rules:
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+# Stage 3: Unit Tests
+unit-tests:
+  stage: test
+  image: node:18-alpine
+  services:
+    - redis:7-alpine
+    - postgres:15-alpine
+  variables:
+    POSTGRES_DB: testdb
+    POSTGRES_USER: testuser
+    POSTGRES_PASSWORD: testpass
+    REDIS_URL: redis://redis:6379
+    DATABASE_URL: postgres://testuser:testpass@postgres:5432/testdb
+    NODE_ENV: test
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run test:unit -- --coverage --reporter=junit --outputFile=junit.xml
+  coverage: '/All files[^|]*\|[^|]*\s+([\d\.]+)/'
+  artifacts:
+    when: always
+    reports:
+      junit: junit.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura-coverage.xml
+    paths:
+      - coverage/
+    expire_in: 1 week
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - .npm/
+      - node_modules/
+    policy: pull
+
+integration-tests:
+  stage: test
+  before_script:
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+  script:
+    - |
+      # Start application container with dependencies
+      docker network create test-network
+
+      # Start dependencies
+      docker run -d --name postgres-test --network test-network \
+        -e POSTGRES_DB=testdb \
+        -e POSTGRES_USER=testuser \
+        -e POSTGRES_PASSWORD=testpass \
+        postgres:15-alpine
+        
+      docker run -d --name redis-test --network test-network \
+        redis:7-alpine
+        
+      # Wait for dependencies
+      sleep 30
+
+      # Start application
+      docker run -d --name app-test --network test-network \
+        -e DATABASE_URL=postgres://testuser:testpass@postgres-test:5432/testdb \
+        -e REDIS_URL=redis://redis-test:6379 \
+        -e NODE_ENV=test \
+        -p 3000:3000 \
+        $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+        
+      # Wait for application startup
+      timeout 120 bash -c 'until curl -f http://localhost:3000/health; do sleep 5; done'
+
+      # Run integration tests
+      docker run --rm --network test-network \
+        -v $PWD/tests:/tests \
+        node:18-alpine \
+        sh -c "cd /tests && npm ci && npm run test:integration"
+  after_script:
+    - docker rm -f app-test postgres-test redis-test || true
+    - docker network rm test-network || true
+  artifacts:
+    when: always
+    reports:
+      junit: integration-test-results.xml
+    expire_in: 1 week
+
+# Stage 4: Security Scanning
+container-scanning:
+  stage: security
+  image: docker:stable
+  services:
+    - docker:stable-dind
+  before_script:
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+  script:
+    - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    - |
+      # Install Trivy
+      apk add --no-cache curl
+      curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+      # Scan for vulnerabilities
+      trivy image --format template --template "@contrib/gitlab.tpl" -o gl-container-scanning-report.json $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+
+      # Generate SARIF for Security Dashboard
+      trivy image --format sarif -o trivy-results.sarif $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+
+      # Fail on high/critical vulnerabilities
+      trivy image --exit-code 1 --severity HIGH,CRITICAL $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+  artifacts:
+    reports:
+      container_scanning: gl-container-scanning-report.json
+      sast: trivy-results.sarif
+    expire_in: 1 week
+  allow_failure: true
+
+dependency-scanning:
+  stage: security
+  image: node:18-alpine
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - |
+      # Install security audit tools
+      npm install -g audit-ci
+
+      # Run npm audit
+      npm audit --json > npm-audit.json || true
+
+      # Convert to GitLab format
+      python3 << 'EOF' > gl-dependency-scanning-report.json
+      import json
+      import sys
+
+      try:
+          with open('npm-audit.json') as f:
+              audit = json.load(f)
+          
+          report = {
+              "version": "15.0.4",
+              "vulnerabilities": [],
+              "dependency_files": [{"path": "package-lock.json", "package_manager": "npm"}],
+              "scan": {"analyzer": {"id": "npm-audit", "name": "npm audit", "version": "1.0.0"}}
+          }
+          
+          if 'vulnerabilities' in audit:
+              for vuln_id, vuln in audit['vulnerabilities'].items():
+                  report['vulnerabilities'].append({
+                      "id": vuln_id,
+                      "name": vuln.get('title', 'Unknown'),
+                      "description": vuln.get('overview', ''),
+                      "severity": vuln.get('severity', 'Unknown').title(),
+                      "solution": vuln.get('recommendation', ''),
+                      "location": {"file": "package-lock.json", "dependency": {"package": {"name": vuln.get('module_name', 'unknown')}}},
+                      "identifiers": [{"type": "npm", "name": vuln_id, "value": vuln_id, "url": vuln.get('url', '')}]
+                  })
+          
+          with open('gl-dependency-scanning-report.json', 'w') as f:
+              json.dump(report, f, indent=2)
+      except Exception as e:
+          print(f"Error processing audit: {e}", file=sys.stderr)
+          sys.exit(1)
+      EOF
+  artifacts:
+    reports:
+      dependency_scanning: gl-dependency-scanning-report.json
+    paths:
+      - npm-audit.json
+    expire_in: 1 week
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - .npm/
+      - node_modules/
+    policy: pull
+
+secret-detection:
+  stage: security
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache git curl
+  script:
+    - |
+      # Install gitleaks
+      curl -sSfL https://github.com/zricethezav/gitleaks/releases/download/v8.18.0/gitleaks_8.18.0_linux_x64.tar.gz | tar -xzf -
+      chmod +x gitleaks
+
+      # Scan for secrets
+      ./gitleaks detect --source . --report-format sarif --report-path gl-secret-detection-report.json || true
+  artifacts:
+    reports:
+      secret_detection: gl-secret-detection-report.json
+    expire_in: 1 week
+
+# Stage 5: Package and Sign
+package-release:
+  stage: package
+  before_script:
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+  script:
+    - |
+      if [ "$CI_COMMIT_TAG" ]; then
+        # Tag release images
+        docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+        docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE:$CI_COMMIT_TAG
+        docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_TAG
+        
+        # Generate SBOM
+        apk add --no-cache curl
+        curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+        syft $CI_REGISTRY_IMAGE:$CI_COMMIT_TAG -o spdx-json --file sbom.spdx.json
+        
+        echo "RELEASE_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_TAG" >> release.env
+      else
+        echo "RELEASE_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA" >> release.env
+      fi
+  artifacts:
+    reports:
+      dotenv: release.env
+    paths:
+      - sbom.spdx.json
+    expire_in: 1 month
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Stage 6: Deploy to Staging
+deploy-staging:
+  stage: deploy-staging
+  image: alpine/helm:latest
+  environment:
+    name: staging
+    url: https://staging.example.com
+  before_script:
+    - apk add --no-cache curl kubectl
+  script:
+    - |
+      # Configure kubectl
+      echo $KUBE_CONFIG | base64 -d > /tmp/kube_config
+      export KUBECONFIG=/tmp/kube_config
+
+      # Deploy to staging namespace
+      kubectl set image deployment/app app=$RELEASE_IMAGE -n staging
+      kubectl rollout status deployment/app -n staging --timeout=300s
+
+      # Run smoke tests
+      kubectl port-forward svc/app 8080:80 -n staging &
+      sleep 10
+      curl -f http://localhost:8080/health || exit 1
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+# Stage 7: Deploy to Production
+deploy-production:
+  stage: deploy-production
+  image: alpine/helm:latest
+  environment:
+    name: production
+    url: https://production.example.com
+  before_script:
+    - apk add --no-cache curl kubectl
+  script:
+    - |
+      # Configure kubectl
+      echo $KUBE_CONFIG | base64 -d > /tmp/kube_config
+      export KUBECONFIG=/tmp/kube_config
+
+      # Blue-green deployment
+      if kubectl get deployment app-blue -n production >/dev/null 2>&1; then
+        TARGET="app-green"
+        CURRENT="app-blue"
+      else
+        TARGET="app-blue"
+        CURRENT="app-green"
+      fi
+
+      # Deploy to target environment
+      kubectl set image deployment/$TARGET app=$RELEASE_IMAGE -n production
+      kubectl scale deployment/$TARGET --replicas=3 -n production
+      kubectl rollout status deployment/$TARGET -n production --timeout=600s
+
+      # Switch traffic
+      kubectl patch service app -n production -p '{"spec":{"selector":{"version":"'${TARGET#app-}'"}}}'
+
+      # Scale down old deployment
+      kubectl scale deployment/$CURRENT --replicas=0 -n production
+
+      # Run production verification
+      curl -f https://production.example.com/health
+  when: manual
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Stage 8: Cleanup
+cleanup-registry:
+  stage: cleanup
+  before_script:
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+  script:
+    - |
+      # Cleanup old images (keep last 10)
+      apk add --no-cache jq curl
+
+      # Get registry tags
+      TAGS=$(curl -s -H "Authorization: Bearer $CI_JOB_TOKEN" \
+        "$CI_API_V4_URL/projects/$CI_PROJECT_ID/registry/repositories" | \
+        jq -r '.[0].location' | \
+        xargs -I {} curl -s -H "Authorization: Bearer $CI_JOB_TOKEN" \
+        "$CI_API_V4_URL/projects/$CI_PROJECT_ID/registry/repositories/{}/tags" | \
+        jq -r '.[].name' | \
+        grep -v latest | \
+        sort -V | \
+        head -n -10)
+
+      # Delete old tags
+      for TAG in $TAGS; do
+        curl -X DELETE -H "Authorization: Bearer $CI_JOB_TOKEN" \
+          "$CI_API_V4_URL/projects/$CI_PROJECT_ID/registry/repositories/$(echo $CI_REGISTRY_IMAGE | cut -d'/' -f3-)/tags/$TAG"
+      done
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  allow_failure: true
+
+# Notification job
+notify-success:
+  stage: cleanup
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - |
+      # Send Slack notification
+      if [ -n "$SLACK_WEBHOOK_URL" ]; then
+        curl -X POST -H 'Content-type: application/json' \
+          --data "{\"text\":\"✅ Pipeline succeeded for $CI_PROJECT_NAME - $CI_COMMIT_REF_NAME\"}" \
+          $SLACK_WEBHOOK_URL
+      fi
+
+      # Update deployment status
+      if [ -n "$JIRA_WEBHOOK_URL" ]; then
+        curl -X POST -H 'Content-type: application/json' \
+          --data "{\"deploymentSequenceNumber\":$CI_PIPELINE_ID,\"displayName\":\"$CI_COMMIT_SHORT_SHA\",\"state\":\"successful\"}" \
+          $JIRA_WEBHOOK_URL
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+  when: on_success
+
+notify-failure:
+  stage: cleanup
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - |
+      # Send failure notification
+      if [ -n "$SLACK_WEBHOOK_URL" ]; then
+        curl -X POST -H 'Content-type: application/json' \
+          --data "{\"text\":\"❌ Pipeline failed for $CI_PROJECT_NAME - $CI_COMMIT_REF_NAME\\nJob: $CI_JOB_NAME\\nStage: $CI_JOB_STAGE\"}" \
+          $SLACK_WEBHOOK_URL
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+  when: on_failure
+
+# Include additional pipeline configurations
+include:
+  - local: "docker-in-docker.yml"
+  - local: "registry-integration.yml"
+  - template: Security/Container-Scanning.gitlab-ci.yml
+  - template: Security/Dependency-Scanning.gitlab-ci.yml
+  - template: Security/SAST.gitlab-ci.yml

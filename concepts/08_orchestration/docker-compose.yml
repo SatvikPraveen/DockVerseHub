@@ -1,0 +1,331 @@
+# 08_orchestration/docker-compose.yml
+
+version: '3.8'
+
+services:
+  # Web application service
+  web:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    networks:
+      - frontend
+      - backend
+    configs:
+      - source: nginx_config
+        target: /etc/nginx/nginx.conf
+    deploy:
+      replicas: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        order: start-first
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      placement:
+        constraints:
+          - node.role == worker
+        preferences:
+          - spread: node.labels.zone
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+        reservations:
+          cpus: '0.25'
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # API service
+  api:
+    image: python:3.11-alpine
+    networks:
+      - backend
+      - database
+    secrets:
+      - db_password
+      - api_key
+    configs:
+      - source: app_config
+        target: /app/config.json
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/appdb
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=info
+    command: |
+      sh -c 'pip install flask redis psycopg2-binary &&
+             cat > /app/app.py << "EOF"
+from flask import Flask, jsonify
+import os
+import redis
+import json
+
+app = Flask(__name__)
+
+# Read secrets
+with open("/run/secrets/db_password", "r") as f:
+    db_pass = f.read().strip()
+
+with open("/run/secrets/api_key", "r") as f:
+    api_key = f.read().strip()
+
+# Read config
+with open("/app/config.json", "r") as f:
+    config = json.load(f)
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "healthy", "service": "api"})
+
+@app.route("/api/info")
+def info():
+    return jsonify({
+        "service": "api",
+        "version": config.get("version", "1.0.0"),
+        "environment": config.get("environment", "development")
+    })
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)
+EOF
+             python /app/app.py'
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      placement:
+        constraints:
+          - node.role == worker
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+        reservations:
+          cpus: '0.5'
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Database service
+  db:
+    image: postgres:15-alpine
+    networks:
+      - database
+    secrets:
+      - db_password
+    environment:
+      - POSTGRES_DB=appdb
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+          - node.labels.storage == ssd
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 512M
+        reservations:
+          cpus: '1.0'
+          memory: 256M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d appdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis cache
+  redis:
+    image: redis:7-alpine
+    networks:
+      - database
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Load balancer / Reverse proxy
+  proxy:
+    image: traefik:v3.0
+    ports:
+      - "8080:8080"   # Traefik dashboard
+      - "80:80"       # HTTP
+      - "443:443"     # HTTPS
+    networks:
+      - frontend
+      - traefik-public
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command:
+      - --api.dashboard=true
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.swarmmode=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --metrics.prometheus=true
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+
+  # Monitoring service
+  monitoring:
+    image: prom/prometheus:latest
+    networks:
+      - monitoring
+    configs:
+      - source: prometheus_config
+        target: /etc/prometheus/prometheus.yml
+    volumes:
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+
+  # Log aggregator
+  logs:
+    image: fluent/fluentd:v1.16-debian-1
+    networks:
+      - logging
+    configs:
+      - source: fluentd_config
+        target: /fluentd/etc/fluent.conf
+    volumes:
+      - log_data:/var/log/fluentd
+    ports:
+      - "24224:24224"
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+
+# Networks
+networks:
+  frontend:
+    driver: overlay
+    attachable: true
+    
+  backend:
+    driver: overlay
+    
+  database:
+    driver: overlay
+    
+  monitoring:
+    driver: overlay
+    
+  logging:
+    driver: overlay
+    
+  traefik-public:
+    external: true
+
+# Volumes
+volumes:
+  db_data:
+    driver: local
+    
+  redis_data:
+    driver: local
+    
+  prometheus_data:
+    driver: local
+    
+  log_data:
+    driver: local
+
+# Secrets
+secrets:
+  db_password:
+    external: true
+    
+  api_key:
+    external: true
+
+# Configs
+configs:
+  nginx_config:
+    external: true
+    
+  app_config:
+    external: true
+    
+  prometheus_config:
+    external: true
+    
+  fluentd_config:
+    external: true

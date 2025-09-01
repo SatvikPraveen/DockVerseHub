@@ -1,0 +1,78 @@
+# File Location: concepts/05_docker_compose/profiles-demo/development.yml
+
+version: "3.8"
+
+services:
+  # Core application services
+  app:
+    image: node:16-alpine
+    profiles: ["core", "development"]
+    volumes:
+      - ./src:/app/src
+    environment:
+      - NODE_ENV=development
+    networks:
+      - dev-network
+
+  database:
+    image: postgres:13-alpine
+    profiles: ["core", "development", "backend"]
+    environment:
+      - POSTGRES_DB=devdb
+      - POSTGRES_USER=dev
+      - POSTGRES_PASSWORD=dev
+    volumes:
+      - dev-db:/var/lib/postgresql/data
+    networks:
+      - dev-network
+
+  # Development-specific services
+  dev-tools:
+    image: node:16-alpine
+    profiles: ["development", "tools"]
+    command: |
+      sh -c '
+        npm install -g nodemon eslint prettier
+        echo "Development tools installed"
+        sleep infinity
+      '
+    volumes:
+      - ./:/workspace
+    networks:
+      - dev-network
+
+  mailcatcher:
+    image: sj26/mailcatcher
+    profiles: ["development", "tools"]
+    ports:
+      - "1080:1080"
+      - "1025:1025"
+    networks:
+      - dev-network
+
+  adminer:
+    image: adminer:latest
+    profiles: ["development", "db-tools"]
+    ports:
+      - "8080:8080"
+    networks:
+      - dev-network
+    depends_on:
+      - database
+
+  redis:
+    image: redis:alpine
+    profiles: ["development", "backend", "cache"]
+    networks:
+      - dev-network
+
+volumes:
+  dev-db:
+
+networks:
+  dev-network:
+    driver: bridge
+# Usage:
+# docker-compose -f development.yml --profile development up
+# docker-compose -f development.yml --profile core up
+# docker-compose -f development.yml --profile tools up

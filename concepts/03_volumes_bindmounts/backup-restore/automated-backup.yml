@@ -1,0 +1,135 @@
+# File Location: concepts/03_volumes_bindmounts/backup-restore/automated-backup.yml
+
+version: "3.8"
+
+services:
+  # Main application with data to backup
+  app:
+    image: postgres:13-alpine
+    container_name: production-db
+    environment:
+      POSTGRES_DB: myapp
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - app-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - app-network
+
+  # Automated backup service
+  backup-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.backup
+    container_name: backup-service
+    environment:
+      - BACKUP_SCHEDULE=0 2 * * * # Daily at 2 AM
+      - RETENTION_DAYS=7
+      - BACKUP_PREFIX=myapp-db
+      - NOTIFICATION_WEBHOOK=${NOTIFICATION_WEBHOOK:-}
+    volumes:
+      - app-data:/source-data:ro
+      - backup-storage:/backups
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./backup-config:/config:ro
+    depends_on:
+      - app
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # Backup storage with S3 sync
+  backup-sync:
+    image: amazon/aws-cli:latest
+    container_name: backup-sync
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_REGION:-us-east-1}
+      - S3_BUCKET=${S3_BACKUP_BUCKET}
+    volumes:
+      - backup-storage:/backups:ro
+    command: |
+      sh -c '
+        while true; do
+          echo "Syncing backups to S3 at $(date)"
+          aws s3 sync /backups s3://$$S3_BUCKET/docker-backups/ \
+            --delete \
+            --storage-class STANDARD_IA
+          echo "S3 sync completed"
+          sleep 3600  # Sync every hour
+        done
+      '
+    depends_on:
+      - backup-scheduler
+    networks:
+      - app-network
+
+  # Monitoring and alerting
+  backup-monitor:
+    image: alpine:latest
+    container_name: backup-monitor
+    environment:
+      - SLACK_WEBHOOK=${SLACK_WEBHOOK:-}
+      - EMAIL_SMTP=${EMAIL_SMTP:-smtp.gmail.com}
+      - EMAIL_USER=${EMAIL_USER:-}
+      - EMAIL_PASS=${EMAIL_PASS:-}
+      - ALERT_EMAIL=${ALERT_EMAIL:-}
+    volumes:
+      - backup-storage:/backups:ro
+      - ./monitoring:/scripts:ro
+    command: |
+      sh -c '
+        apk add --no-cache curl jq
+        while true; do
+          /scripts/check-backup-health.sh
+          sleep 300  # Check every 5 minutes
+        done
+      '
+    depends_on:
+      - backup-scheduler
+    networks:
+      - app-network
+
+volumes:
+  app-data:
+    driver: local
+
+  backup-storage:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/backups/docker
+
+networks:
+  app-network:
+    driver: bridge
+
+# Additional backup service configurations
+x-backup-templates:
+  mysql-backup: &mysql-backup
+    image: mysql:8.0
+    command: |
+      sh -c '
+        while true; do
+          echo "Starting MySQL backup at $(date)"
+          mysqldump -h mysql -u root -p$$MYSQL_ROOT_PASSWORD --all-databases > /backups/mysql-$(date +%Y%m%d_%H%M%S).sql
+          find /backups -name "mysql-*.sql" -mtime +7 -delete
+          sleep 86400
+        done
+      '
+
+  mongodb-backup: &mongodb-backup
+    image: mongo:5.0
+    command: |
+      sh -c '
+        while true; do
+          echo "Starting MongoDB backup at $(date)"
+          mongodump --host mongo --out /backups/mongo-$(date +%Y%m%d_%H%M%S)
+          find /backups -name "mongo-*" -type d -mtime +7 -exec rm -rf {} +
+          sleep 86400
+        done
+      '

@@ -1,0 +1,103 @@
+# File Location: concepts/06_security/secrets_demo/docker-compose.yml
+
+version: "3.8"
+
+services:
+  # Web application using secrets
+  webapp:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - DATABASE_URL=postgresql://dbuser:password@database:5432/secretsdb
+    secrets:
+      - db_password
+      - api_key
+      - jwt_secret
+    networks:
+      - secure-network
+    depends_on:
+      database:
+        condition: service_healthy
+
+  # Database with secret management
+  database:
+    image: postgres:13-alpine
+    environment:
+      - POSTGRES_DB=secretsdb
+      - POSTGRES_USER=dbuser
+      - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
+    secrets:
+      - db_password
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - secure-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dbuser -d secretsdb"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Secrets rotator service
+  secret-rotator:
+    image: alpine:latest
+    command: |
+      sh -c '
+        apk add --no-cache openssl curl
+        while true; do
+          echo "Checking secrets at $(date)"
+          
+          # Check secret files
+          ls -la /run/secrets/
+          
+          # Verify secrets are properly mounted
+          if [ -s /run/secrets/db_password ]; then
+            echo "Database password: OK ($(wc -c < /run/secrets/db_password) bytes)"
+          else
+            echo "Database password: MISSING"
+          fi
+          
+          if [ -s /run/secrets/api_key ]; then
+            echo "API key: OK ($(wc -c < /run/secrets/api_key) bytes)"
+          else
+            echo "API key: MISSING"
+          fi
+          
+          # Rotate secrets (simulation)
+          echo "Secret rotation check completed"
+          sleep 300  # Check every 5 minutes
+        done
+      '
+    secrets:
+      - db_password
+      - api_key
+    networks:
+      - secure-network
+
+secrets:
+  db_password:
+    file: ./secrets.env
+  api_key:
+    external: true
+    external_name: webapp_api_key
+  jwt_secret:
+    file: ./jwt_secret.txt
+
+volumes:
+  db-data:
+
+networks:
+  secure-network:
+    driver: bridge
+# Setup instructions:
+# 1. Create secrets files:
+#    echo "secure-database-password-123" > secrets.env
+#    openssl rand -hex 32 > jwt_secret.txt
+#
+# 2. Create external secret:
+#    echo "external-api-key-456" | docker secret create webapp_api_key -
+#
+# 3. Build and run:
+#    docker-compose up --build

@@ -1,0 +1,752 @@
+# 09_advanced_tricks/custom-solutions/job-scheduling.yml
+
+# Container Job Scheduling Patterns
+# Advanced job scheduling, cron jobs, batch processing, and workflow orchestration
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: database-backup-job
+  namespace: default
+  labels:
+    job-type: backup
+    component: database
+spec:
+  ttlSecondsAfterFinished: 86400 # Clean up after 24 hours
+  backoffLimit: 3
+  activeDeadlineSeconds: 3600 # 1 hour timeout
+  parallelism: 1
+  completions: 1
+  template:
+    metadata:
+      labels:
+        job-type: backup
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: backup
+          image: postgres:15-alpine
+          env:
+            - name: PGHOST
+              value: "postgres-service"
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: password
+            - name: PGDATABASE
+              value: "myapp"
+            - name: BACKUP_RETENTION_DAYS
+              value: "30"
+            - name: S3_BUCKET
+              value: "my-backups-bucket"
+          command: ["/bin/bash"]
+          args:
+            - -c
+            - |
+              set -e
+              echo "Starting database backup at $(date)"
+
+              # Create backup filename with timestamp
+              BACKUP_FILE="backup_${PGDATABASE}_$(date +%Y%m%d_%H%M%S).sql.gz"
+
+              # Perform backup
+              pg_dump -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE \
+                --verbose --clean --if-exists --create | gzip > /tmp/$BACKUP_FILE
+
+              # Verify backup
+              if [ ! -s /tmp/$BACKUP_FILE ]; then
+                echo "Backup file is empty or does not exist"
+                exit 1
+              fi
+
+              echo "Backup completed: $BACKUP_FILE"
+              echo "File size: $(du -h /tmp/$BACKUP_FILE | cut -f1)"
+
+              # Upload to S3
+              aws s3 cp /tmp/$BACKUP_FILE s3://$S3_BUCKET/database-backups/
+
+              # Cleanup old backups
+              aws s3 ls s3://$S3_BUCKET/database-backups/ | \
+                while read -r line; do
+                  createDate=$(echo $line | awk '{print $1" "$2}')
+                  createDate=$(date -d "$createDate" +%s)
+                  olderThan=$(date -d "$BACKUP_RETENTION_DAYS days ago" +%s)
+                  if [[ $createDate -lt $olderThan ]]; then
+                    fileName=$(echo $line | awk '{print $4}')
+                    aws s3 rm s3://$S3_BUCKET/database-backups/$fileName
+                    echo "Deleted old backup: $fileName"
+                  fi
+                done
+
+              echo "Backup job completed successfully at $(date)"
+          volumeMounts:
+            - name: aws-credentials
+              mountPath: /root/.aws
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      volumes:
+        - name: aws-credentials
+          secret:
+            secretName: aws-credentials
+
+---
+# CronJob for scheduled tasks
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: data-cleanup-cronjob
+  namespace: default
+  labels:
+    job-type: cleanup
+spec:
+  schedule: "0 2 * * *" # Run daily at 2 AM
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 3600
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800 # 30 minutes
+      template:
+        metadata:
+          labels:
+            job-type: cleanup
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: cleanup
+              image: alpine:latest
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-secret
+                      key: url
+                - name: RETENTION_DAYS
+                  value: "90"
+                - name: BATCH_SIZE
+                  value: "1000"
+              command: ["/bin/sh"]
+              args:
+                - -c
+                - |
+                  apk add --no-cache postgresql-client curl jq
+
+                  echo "Starting data cleanup at $(date)"
+
+                  # Cleanup old log entries
+                  echo "Cleaning up logs older than $RETENTION_DAYS days..."
+                  psql $DATABASE_URL -c "
+                    DELETE FROM application_logs 
+                    WHERE created_at < NOW() - INTERVAL '$RETENTION_DAYS days';
+                  "
+
+                  # Cleanup orphaned records
+                  echo "Cleaning up orphaned records..."
+                  psql $DATABASE_URL -c "
+                    DELETE FROM user_sessions 
+                    WHERE user_id NOT IN (SELECT id FROM users);
+                  "
+
+                  # Optimize tables
+                  echo "Optimizing database tables..."
+                  psql $DATABASE_URL -c "VACUUM ANALYZE;"
+
+                  # Send metrics to monitoring
+                  DELETED_LOGS=$(psql $DATABASE_URL -t -c "SELECT COUNT(*) FROM application_logs WHERE created_at < NOW() - INTERVAL '$RETENTION_DAYS days';" | xargs)
+
+                  curl -X POST http://prometheus-pushgateway:9091/metrics/job/cleanup_job \
+                    -d "cleanup_deleted_logs{job=\"data-cleanup\"} $DELETED_LOGS"
+
+                  echo "Data cleanup completed at $(date)"
+              resources:
+                requests:
+                  memory: "128Mi"
+                  cpu: "100m"
+                limits:
+                  memory: "256Mi"
+                  cpu: "200m"
+
+---
+# Parallel Job Processing
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: image-processing-job
+  namespace: default
+  labels:
+    job-type: processing
+spec:
+  parallelism: 4 # Run 4 pods in parallel
+  completions: 20 # Process 20 total work items
+  backoffLimit: 5
+  activeDeadlineSeconds: 7200 # 2 hours timeout
+  template:
+    metadata:
+      labels:
+        job-type: processing
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: image-processor
+          image: python:3.9-slim
+          env:
+            - name: QUEUE_URL
+              value: "redis://redis-service:6379"
+            - name: S3_INPUT_BUCKET
+              value: "images-to-process"
+            - name: S3_OUTPUT_BUCKET
+              value: "processed-images"
+            - name: WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          command: ["/bin/bash"]
+          args:
+            - -c
+            - |
+              pip install redis pillow boto3 requests
+
+              cat > /app/processor.py << 'EOF'
+              import redis
+              import boto3
+              import os
+              import json
+              from PIL import Image
+              import io
+              import sys
+              import time
+              import logging
+
+              logging.basicConfig(level=logging.INFO)
+              logger = logging.getLogger(__name__)
+
+              # Initialize connections
+              r = redis.Redis.from_url(os.environ['QUEUE_URL'])
+              s3 = boto3.client('s3')
+
+              def process_image(image_key):
+                  """Download, process, and upload image"""
+                  try:
+                      input_bucket = os.environ['S3_INPUT_BUCKET']
+                      output_bucket = os.environ['S3_OUTPUT_BUCKET']
+                      
+                      logger.info(f"Processing image: {image_key}")
+                      
+                      # Download image from S3
+                      response = s3.get_object(Bucket=input_bucket, Key=image_key)
+                      image_data = response['Body'].read()
+                      
+                      # Process image (resize and convert)
+                      with Image.open(io.BytesIO(image_data)) as img:
+                          # Create thumbnail
+                          img.thumbnail((200, 200), Image.Resampling.LANCZOS)
+                          
+                          # Convert to RGB if necessary
+                          if img.mode != 'RGB':
+                              img = img.convert('RGB')
+                          
+                          # Save processed image
+                          output_buffer = io.BytesIO()
+                          img.save(output_buffer, format='JPEG', quality=85)
+                          output_data = output_buffer.getvalue()
+                      
+                      # Upload processed image
+                      output_key = f"thumbnails/{image_key}"
+                      s3.put_object(
+                          Bucket=output_bucket,
+                          Key=output_key,
+                          Body=output_data,
+                          ContentType='image/jpeg'
+                      )
+                      
+                      logger.info(f"Successfully processed: {image_key} -> {output_key}")
+                      return True
+                      
+                  except Exception as e:
+                      logger.error(f"Error processing {image_key}: {e}")
+                      return False
+
+              def main():
+                  worker_id = os.environ.get('WORKER_ID', 'unknown')
+                  logger.info(f"Worker {worker_id} started")
+                  
+                  processed_count = 0
+                  max_items = 5  # Process max 5 items per worker
+                  
+                  while processed_count < max_items:
+                      # Get work item from queue
+                      work_item = r.blpop('image_queue', timeout=30)
+                      if not work_item:
+                          logger.info("No more work items, exiting")
+                          break
+                      
+                      image_key = work_item[1].decode('utf-8')
+                      
+                      if process_image(image_key):
+                          processed_count += 1
+                          # Report progress
+                          r.hincrby('processing_stats', 'completed', 1)
+                      else:
+                          # Re-queue failed item for retry
+                          r.lpush('image_queue', image_key)
+                          r.hincrby('processing_stats', 'failed', 1)
+                  
+                  logger.info(f"Worker {worker_id} completed, processed {processed_count} items")
+
+              if __name__ == "__main__":
+                  main()
+              EOF
+
+              python /app/processor.py
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          volumeMounts:
+            - name: aws-credentials
+              mountPath: /root/.aws
+      volumes:
+        - name: aws-credentials
+          secret:
+            secretName: aws-credentials
+
+---
+# Job with Init Container and Sidecar
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: etl-job-with-monitoring
+  namespace: default
+  labels:
+    job-type: etl
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 14400 # 4 hours
+  template:
+    metadata:
+      labels:
+        job-type: etl
+    spec:
+      restartPolicy: Never
+
+      # Init container to prepare data
+      initContainers:
+        - name: data-validator
+          image: alpine:latest
+          command: ["/bin/sh"]
+          args:
+            - -c
+            - |
+              echo "Validating input data..."
+
+              # Check if required files exist
+              required_files=("customers.csv" "orders.csv" "products.csv")
+              for file in "${required_files[@]}"; do
+                if [ ! -f "/data/input/$file" ]; then
+                  echo "Required file missing: $file"
+                  exit 1
+                fi
+              done
+
+              # Validate file sizes
+              for file in "${required_files[@]}"; do
+                size=$(stat -f%z "/data/input/$file" 2>/dev/null || stat -c%s "/data/input/$file")
+                if [ "$size" -lt 100 ]; then
+                  echo "File too small: $file (${size} bytes)"
+                  exit 1
+                fi
+              done
+
+              echo "Data validation passed"
+          volumeMounts:
+            - name: etl-data
+              mountPath: /data
+
+      containers:
+        # Main ETL job
+        - name: etl-processor
+          image: python:3.9-slim
+          env:
+            - name: SOURCE_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: source-db-secret
+                  key: url
+            - name: TARGET_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: target-db-secret
+                  key: url
+            - name: JOB_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          command: ["/bin/bash"]
+          args:
+            - -c
+            - |
+              pip install pandas sqlalchemy psycopg2-binary prometheus_client
+
+              cat > /app/etl_job.py << 'EOF'
+              import pandas as pd
+              import sqlalchemy
+              import os
+              import json
+              import time
+              from datetime import datetime
+              from prometheus_client import CollectorRegistry, Counter, Histogram, push_to_gateway
+
+              # Prometheus metrics
+              registry = CollectorRegistry()
+              processed_records = Counter('etl_processed_records_total', 'Total processed records', registry=registry)
+              processing_time = Histogram('etl_processing_seconds', 'Time spent processing', registry=registry)
+
+              def extract_data():
+                  """Extract data from source"""
+                  print(f"Starting data extraction at {datetime.now()}")
+                  
+                  source_engine = sqlalchemy.create_engine(os.environ['SOURCE_DB_URL'])
+                  
+                  # Extract customers
+                  customers_df = pd.read_sql("SELECT * FROM customers WHERE updated_at > NOW() - INTERVAL '1 day'", source_engine)
+                  
+                  # Extract orders
+                  orders_df = pd.read_sql("SELECT * FROM orders WHERE created_at > NOW() - INTERVAL '1 day'", source_engine)
+                  
+                  print(f"Extracted {len(customers_df)} customers, {len(orders_df)} orders")
+                  return customers_df, orders_df
+
+              def transform_data(customers_df, orders_df):
+                  """Transform and clean data"""
+                  print(f"Starting data transformation at {datetime.now()}")
+                  
+                  # Clean and transform customers
+                  customers_df['email'] = customers_df['email'].str.lower()
+                  customers_df['phone'] = customers_df['phone'].str.replace(r'[^\d]', '', regex=True)
+                  
+                  # Aggregate order data
+                  order_summary = orders_df.groupby('customer_id').agg({
+                      'order_total': 'sum',
+                      'order_id': 'count'
+                  }).rename(columns={'order_id': 'order_count'})
+                  
+                  # Join data
+                  result_df = customers_df.merge(order_summary, left_on='id', right_index=True, how='left')
+                  result_df['order_total'] = result_df['order_total'].fillna(0)
+                  result_df['order_count'] = result_df['order_count'].fillna(0)
+                  
+                  print(f"Transformed data: {len(result_df)} records")
+                  return result_df
+
+              def load_data(data_df):
+                  """Load data to target"""
+                  print(f"Starting data load at {datetime.now()}")
+                  
+                  target_engine = sqlalchemy.create_engine(os.environ['TARGET_DB_URL'])
+                  
+                  # Load data in batches
+                  batch_size = 1000
+                  total_records = len(data_df)
+                  
+                  for i in range(0, total_records, batch_size):
+                      batch = data_df.iloc[i:i+batch_size]
+                      batch.to_sql('customer_summary', target_engine, if_exists='append', index=False)
+                      processed_records.inc(len(batch))
+                      print(f"Loaded batch {i//batch_size + 1}: {len(batch)} records")
+                  
+                  print(f"Data load completed: {total_records} records")
+
+              def main():
+                  start_time = time.time()
+                  
+                  try:
+                      with processing_time.time():
+                          # ETL Process
+                          customers_df, orders_df = extract_data()
+                          transformed_df = transform_data(customers_df, orders_df)
+                          load_data(transformed_df)
+                      
+                      print(f"ETL job completed successfully in {time.time() - start_time:.2f} seconds")
+                      
+                      # Push metrics
+                      push_to_gateway('pushgateway:9091', job='etl_job', registry=registry)
+                      
+                      # Save job summary
+                      summary = {
+                          'job_id': os.environ.get('JOB_ID'),
+                          'status': 'success',
+                          'start_time': datetime.fromtimestamp(start_time).isoformat(),
+                          'end_time': datetime.now().isoformat(),
+                          'duration_seconds': time.time() - start_time,
+                          'records_processed': int(processed_records._value._value)
+                      }
+                      
+                      with open('/data/output/job_summary.json', 'w') as f:
+                          json.dump(summary, f, indent=2)
+                      
+                  except Exception as e:
+                      print(f"ETL job failed: {e}")
+                      raise
+
+              if __name__ == "__main__":
+                  main()
+              EOF
+
+              python /app/etl_job.py
+          volumeMounts:
+            - name: etl-data
+              mountPath: /data
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+
+        # Monitoring sidecar
+        - name: job-monitor
+          image: alpine:latest
+          command: ["/bin/sh"]
+          args:
+            - -c
+            - |
+              apk add --no-cache curl
+
+              echo "Starting job monitoring..."
+
+              while true; do
+                # Check if main container is still running
+                if [ ! -d "/proc/1" ]; then
+                  echo "Main container finished, monitoring completed"
+                  break
+                fi
+                
+                # Send heartbeat
+                curl -X POST http://monitoring-service:8080/heartbeat \
+                  -H "Content-Type: application/json" \
+                  -d "{\"job_id\": \"$JOB_ID\", \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" || true
+                
+                # Check progress
+                if [ -f "/data/output/job_summary.json" ]; then
+                  curl -X POST http://monitoring-service:8080/job-completed \
+                    -H "Content-Type: application/json" \
+                    -d @/data/output/job_summary.json || true
+                  break
+                fi
+                
+                sleep 30
+              done
+          env:
+            - name: JOB_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            - name: etl-data
+              mountPath: /data
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "25m"
+            limits:
+              memory: "64Mi"
+              cpu: "50m"
+
+      volumes:
+        - name: etl-data
+          persistentVolumeClaim:
+            claimName: etl-data-pvc
+
+---
+# Job Controller for Workflow Orchestration
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: workflow-orchestrator
+  namespace: default
+  labels:
+    job-type: orchestrator
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 7200
+  template:
+    metadata:
+      labels:
+        job-type: orchestrator
+    spec:
+      restartPolicy: Never
+      serviceAccountName: job-controller
+      containers:
+        - name: orchestrator
+          image: bitnami/kubectl:latest
+          command: ["/bin/bash"]
+          args:
+            - -c
+            - |
+              echo "Starting workflow orchestration..."
+
+              # Step 1: Data validation job
+              echo "Starting data validation..."
+              kubectl apply -f - <<EOF
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: data-validation-${RANDOM}
+                labels:
+                  workflow: data-pipeline
+                  step: validation
+              spec:
+                backoffLimit: 2
+                template:
+                  spec:
+                    restartPolicy: Never
+                    containers:
+                    - name: validator
+                      image: alpine:latest
+                      command: ["/bin/sh", "-c", "echo 'Validating data...'; sleep 30; echo 'Validation complete'"]
+              EOF
+
+              # Wait for validation to complete
+              kubectl wait --for=condition=complete --timeout=600s job -l workflow=data-pipeline,step=validation
+
+              # Step 2: ETL processing job
+              echo "Starting ETL processing..."
+              kubectl apply -f - <<EOF
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: etl-processing-${RANDOM}
+                labels:
+                  workflow: data-pipeline
+                  step: processing
+              spec:
+                backoffLimit: 2
+                template:
+                  spec:
+                    restartPolicy: Never
+                    containers:
+                    - name: processor
+                      image: alpine:latest
+                      command: ["/bin/sh", "-c", "echo 'Processing data...'; sleep 60; echo 'Processing complete'"]
+              EOF
+
+              # Wait for processing to complete
+              kubectl wait --for=condition=complete --timeout=1200s job -l workflow=data-pipeline,step=processing
+
+              # Step 3: Report generation job
+              echo "Starting report generation..."
+              kubectl apply -f - <<EOF
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: report-generation-${RANDOM}
+                labels:
+                  workflow: data-pipeline
+                  step: reporting
+              spec:
+                backoffLimit: 2
+                template:
+                  spec:
+                    restartPolicy: Never
+                    containers:
+                    - name: reporter
+                      image: alpine:latest
+                      command: ["/bin/sh", "-c", "echo 'Generating reports...'; sleep 45; echo 'Reports generated'"]
+              EOF
+
+              # Wait for reporting to complete
+              kubectl wait --for=condition=complete --timeout=600s job -l workflow=data-pipeline,step=reporting
+
+              echo "Workflow orchestration completed successfully!"
+
+              # Cleanup completed jobs (optional)
+              kubectl delete job -l workflow=data-pipeline
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+
+---
+# ServiceAccount for Job Controller
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: job-controller
+  namespace: default
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: default
+  name: job-controller
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: job-controller
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: job-controller
+    namespace: default
+roleRef:
+  kind: Role
+  name: job-controller
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# PersistentVolumeClaim for ETL data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: etl-data-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+# Supporting Secrets
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aws-credentials
+  namespace: default
+type: Opaque
+stringData:
+  credentials: |
+    [default]
+    aws_access_key_id = YOUR_ACCESS_KEY
+    aws_secret_access_key = YOUR_SECRET_KEY
+    region = us-east-1

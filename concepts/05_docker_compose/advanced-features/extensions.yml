@@ -1,0 +1,278 @@
+# File Location: concepts/05_docker_compose/advanced-features/extensions.yml
+
+version: "3.8"
+
+# Extension fields (reusable configuration blocks)
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-restart-policy: &restart-policy
+  restart_policy:
+    condition: on-failure
+    delay: 5s
+    max_attempts: 3
+    window: 120s
+
+x-healthcheck: &http-healthcheck
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 30s
+
+x-resource-limits: &standard-resources
+  limits:
+    cpus: "0.5"
+    memory: 512M
+  reservations:
+    cpus: "0.25"
+    memory: 256M
+
+x-common-environment: &common-env
+  - NODE_ENV=${NODE_ENV:-production}
+  - LOG_LEVEL=${LOG_LEVEL:-info}
+  - TZ=${TZ:-UTC}
+
+services:
+  # Web service using extensions
+  web:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    logging: *default-logging
+    deploy:
+      replicas: 3
+      <<: *restart-policy
+      resources: *standard-resources
+    healthcheck:
+      <<: *http-healthcheck
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+    environment: *common-env
+    networks:
+      - frontend
+    volumes:
+      - web-content:/usr/share/nginx/html
+
+  # API service with shared configuration
+  api:
+    image: node:16-alpine
+    command: |
+      sh -c '
+        npm init -y
+        npm install express
+        cat > server.js << EOF
+        const express = require("express");
+        const app = express();
+        
+        app.get("/", (req, res) => {
+          res.json({ 
+            message: "API Service",
+            env: process.env.NODE_ENV,
+            hostname: require("os").hostname()
+          });
+        });
+        
+        app.get("/health", (req, res) => {
+          res.json({ status: "healthy" });
+        });
+        
+        app.listen(3000, () => console.log("API running on port 3000"));
+        EOF
+        node server.js
+      '
+    logging: *default-logging
+    deploy:
+      replicas: 2
+      <<: *restart-policy
+      resources: *standard-resources
+    healthcheck:
+      <<: *http-healthcheck
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+    environment:
+      - <<: *common-env
+      - API_PORT=3000
+      - DATABASE_URL=postgresql://user:pass@database:5432/apidb
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      - database
+
+  # Database with extension usage
+  database:
+    image: postgres:13-alpine
+    environment:
+      - POSTGRES_DB=apidb
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=pass
+      - <<: *common-env
+    logging: *default-logging
+    deploy:
+      replicas: 1
+      <<: *restart-policy
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d apidb"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - backend
+
+  # Worker service demonstrating anchor override
+  worker:
+    image: node:16-alpine
+    command: |
+      sh -c '
+        cat > worker.js << EOF
+        console.log("Worker started");
+        setInterval(() => {
+          console.log("Processing job at " + new Date());
+        }, 10000);
+        EOF
+        node worker.js
+      '
+    logging: *default-logging
+    deploy:
+      replicas: 5
+      <<: *restart-policy
+      resources:
+        # Override standard resources for worker
+        limits:
+          cpus: "0.25"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+    environment:
+      - <<: *common-env
+      - WORKER_CONCURRENCY=4
+      - QUEUE_URL=redis://redis:6379
+    networks:
+      - backend
+    depends_on:
+      - redis
+
+  # Cache service
+  redis:
+    image: redis:6-alpine
+    command: redis-server --appendonly yes
+    logging: *default-logging
+    deploy:
+      replicas: 1
+      <<: *restart-policy
+      resources:
+        limits:
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    volumes:
+      - redis-data:/data
+    networks:
+      - backend
+
+  # Monitoring stack using extensions
+  prometheus:
+    image: prom/prometheus
+    ports:
+      - "9090:9090"
+    logging: *default-logging
+    deploy:
+      <<: *restart-policy
+      resources: *standard-resources
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - monitoring
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3001:3000"
+    logging: *default-logging
+    deploy:
+      <<: *restart-policy
+      resources: *standard-resources
+    environment:
+      - <<: *common-env
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+
+# Volumes
+volumes:
+  web-content:
+  db-data:
+  redis-data:
+  prometheus-data:
+  grafana-data:
+
+# Networks using extension
+networks:
+  frontend:
+    driver: overlay
+    driver_opts:
+      encrypted: "true"
+  backend:
+    driver: overlay
+    driver_opts:
+      encrypted: "true"
+  monitoring:
+    driver: overlay
+
+# Example of extension field with complex configuration
+x-deploy-config: &production-deploy
+  mode: replicated
+  replicas: 3
+  placement:
+    constraints:
+      - node.role == worker
+    preferences:
+      - spread: node.labels.zone
+  update_config:
+    parallelism: 1
+    delay: 10s
+    failure_action: rollback
+    monitor: 60s
+    max_failure_ratio: 0.1
+  restart_policy:
+    condition: on-failure
+    delay: 5s
+    max_attempts: 3
+    window: 120s
+  resources:
+    limits:
+      cpus: "1.0"
+      memory: 1G
+    reservations:
+      cpus: "0.5"
+      memory: 512M
+# Usage examples:
+#
+# Extension fields provide:
+# 1. Code reuse across services
+# 2. Consistent configuration
+# 3. Easier maintenance
+# 4. Override capabilities with <<: merge operator
+#
+# Deploy with:
+# docker stack deploy -c extensions.yml extension-demo

@@ -1,0 +1,67 @@
+# 07_logging_monitoring/logging-drivers/json-file.yml
+
+version: "3.8"
+
+services:
+  json-file-app:
+    image: nginx:alpine
+    container_name: json-file-demo
+    ports:
+      - "8090:80"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m" # Maximum size of each log file
+        max-file: "3" # Maximum number of log files to retain
+        compress: "true" # Compress rotated log files
+        labels: "service,version"
+        env: "LOG_LEVEL,APP_NAME"
+    labels:
+      - "service=nginx-demo"
+      - "version=1.0"
+    environment:
+      - LOG_LEVEL=info
+      - APP_NAME=json-file-demo
+    command: |
+      sh -c 'echo "Starting nginx with json-file logging..." && 
+             echo "Log file location: /var/lib/docker/containers/<container_id>/<container_id>-json.log" &&
+             nginx -g "daemon off;"'
+
+  # Log viewer service to demonstrate log access
+  log-viewer:
+    image: alpine:latest
+    container_name: json-file-viewer
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: |
+      sh -c 'apk add --no-cache docker-cli curl &&
+             echo "=== JSON File Logging Demo ===" &&
+             echo "Waiting for nginx container..." &&
+             sleep 5 &&
+             echo "Container logs using docker logs:" &&
+             docker logs json-file-demo &&
+             echo "=== Log file inspection ===" &&
+             CONTAINER_ID=$$(docker inspect -f "{{.Id}}" json-file-demo) &&
+             echo "Container ID: $$CONTAINER_ID" &&
+             echo "Log file path: /var/lib/docker/containers/$$CONTAINER_ID/$$CONTAINER_ID-json.log" &&
+             if [ -f "/var/lib/docker/containers/$$CONTAINER_ID/$$CONTAINER_ID-json.log" ]; then
+               echo "=== First 10 lines of log file ===" &&
+               head -10 "/var/lib/docker/containers/$$CONTAINER_ID/$$CONTAINER_ID-json.log"
+             else
+               echo "Log file not accessible from this container"
+             fi &&
+             echo "=== Generating test logs ===" &&
+             for i in $$(seq 1 5); do
+               curl -s http://json-file-app/ > /dev/null
+               sleep 1
+             done &&
+             echo "=== Updated logs ===" &&
+             docker logs --tail 5 json-file-demo &&
+             tail -f /dev/null'
+    depends_on:
+      - json-file-app
+
+networks:
+  default:
+    driver: bridge

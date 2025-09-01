@@ -1,0 +1,104 @@
+{
+  "_comment": "File Location: labs/lab_04_logging_dashboard/kibana/dashboards/application-overview.json",
+  "version": "8.11.0",
+  "objects": [
+    {
+      "id": "dockversehub-logs-overview",
+      "type": "dashboard",
+      "attributes": {
+        "title": "DockVerseHub - Application Logs Overview",
+        "description": "Overview dashboard for application logs and metrics",
+        "panelsJSON": "[{\"version\":\"8.11.0\",\"gridData\":{\"x\":0,\"y\":0,\"w\":48,\"h\":15,\"i\":\"1\"},\"panelIndex\":\"1\",\"embeddableConfig\":{},\"panelRefName\":\"panel_1\"},{\"version\":\"8.11.0\",\"gridData\":{\"x\":0,\"y\":15,\"w\":24,\"h\":15,\"i\":\"2\"},\"panelIndex\":\"2\",\"embeddableConfig\":{},\"panelRefName\":\"panel_2\"},{\"version\":\"8.11.0\",\"gridData\":{\"x\":24,\"y\":15,\"w\":24,\"h\":15,\"i\":\"3\"},\"panelIndex\":\"3\",\"embeddableConfig\":{},\"panelRefName\":\"panel_3\"},{\"version\":\"8.11.0\",\"gridData\":{\"x\":0,\"y\":30,\"w\":48,\"h\":20,\"i\":\"4\"},\"panelIndex\":\"4\",\"embeddableConfig\":{},\"panelRefName\":\"panel_4\"}]",
+        "timeRestore": false,
+        "timeTo": "now",
+        "timeFrom": "now-24h",
+        "refreshInterval": {
+          "pause": false,
+          "value": 10000
+        },
+        "kibanaSavedObjectMeta": {
+          "searchSourceJSON": "{\"query\":{\"query\":\"\",\"language\":\"kuery\"},\"filter\":[]}"
+        }
+      },
+      "references": [
+        {
+          "name": "panel_1",
+          "type": "visualization",
+          "id": "log-level-distribution"
+        },
+        {
+          "name": "panel_2",
+          "type": "visualization",
+          "id": "service-logs-count"
+        },
+        {
+          "name": "panel_3",
+          "type": "visualization",
+          "id": "error-rate-timeline"
+        },
+        {
+          "name": "panel_4",
+          "type": "visualization",
+          "id": "recent-log-messages"
+        }
+      ]
+    },
+    {
+      "id": "log-level-distribution",
+      "type": "visualization",
+      "attributes": {
+        "title": "Log Level Distribution",
+        "visState": "{\"title\":\"Log Level Distribution\",\"type\":\"pie\",\"aggs\":[{\"id\":\"1\",\"type\":\"count\",\"schema\":\"metric\",\"params\":{}},{\"id\":\"2\",\"type\":\"terms\",\"schema\":\"segment\",\"params\":{\"field\":\"level\",\"size\":10,\"order\":\"desc\",\"orderBy\":\"1\"}}]}",
+        "uiStateJSON": "{}",
+        "description": "Distribution of log levels across all services",
+        "version": 1,
+        "kibanaSavedObjectMeta": {
+          "searchSourceJSON": "{\"index\":\"logs-*\",\"query\":{\"match_all\":{}},\"filter\":[]}"
+        }
+      }
+    },
+    {
+      "id": "service-logs-count",
+      "type": "visualization",
+      "attributes": {
+        "title": "Logs by Service",
+        "visState": "{\"title\":\"Logs by Service\",\"type\":\"histogram\",\"aggs\":[{\"id\":\"1\",\"type\":\"count\",\"schema\":\"metric\",\"params\":{}},{\"id\":\"2\",\"type\":\"terms\",\"schema\":\"segment\",\"params\":{\"field\":\"service\",\"size\":10,\"order\":\"desc\",\"orderBy\":\"1\"}}]}",
+        "uiStateJSON": "{}",
+        "description": "Number of log entries per service",
+        "version": 1,
+        "kibanaSavedObjectMeta": {
+          "searchSourceJSON": "{\"index\":\"logs-*\",\"query\":{\"match_all\":{}},\"filter\":[]}"
+        }
+      }
+    },
+    {
+      "id": "error-rate-timeline",
+      "type": "visualization",
+      "attributes": {
+        "title": "Error Rate Over Time",
+        "visState": "{\"title\":\"Error Rate Over Time\",\"type\":\"line\",\"aggs\":[{\"id\":\"1\",\"type\":\"count\",\"schema\":\"metric\",\"params\":{}},{\"id\":\"2\",\"type\":\"date_histogram\",\"schema\":\"segment\",\"params\":{\"field\":\"@timestamp\",\"interval\":\"auto\",\"customInterval\":\"2h\",\"min_doc_count\":1,\"extended_bounds\":{}}}]}",
+        "uiStateJSON": "{}",
+        "description": "Timeline showing error rate trends",
+        "version": 1,
+        "kibanaSavedObjectMeta": {
+          "searchSourceJSON": "{\"index\":\"logs-*\",\"query\":{\"match_all\":{}},\"filter\":[{\"meta\":{\"negate\":false,\"disabled\":false,\"alias\":null,\"type\":\"phrase\",\"key\":\"level\",\"value\":\"ERROR\"},\"query\":{\"match\":{\"level\":\"ERROR\"}}}]}"
+        }
+      }
+    },
+    {
+      "id": "recent-log-messages",
+      "type": "search",
+      "attributes": {
+        "title": "Recent Log Messages",
+        "description": "Most recent log entries across all services",
+        "hits": 0,
+        "columns": ["@timestamp", "service", "level", "message"],
+        "sort": [["@timestamp", "desc"]],
+        "version": 1,
+        "kibanaSavedObjectMeta": {
+          "searchSourceJSON": "{\"index\":\"logs-*\",\"highlightAll\":true,\"version\":true,\"query\":{\"match_all\":{}},\"filter\":[]}"
+        }
+      }
+    }
+  ]
+}

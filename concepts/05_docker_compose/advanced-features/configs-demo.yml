@@ -1,0 +1,231 @@
+# File Location: concepts/05_docker_compose/advanced-features/configs-demo.yml
+
+version: "3.8"
+
+services:
+  # Nginx with configuration files
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+      - "8443:443"
+    configs:
+      - source: nginx_config
+        target: /etc/nginx/nginx.conf
+        mode: 0644
+      - source: ssl_config
+        target: /etc/nginx/conf.d/ssl.conf
+        mode: 0644
+      - source: upstream_config
+        target: /etc/nginx/conf.d/upstream.conf
+    volumes:
+      - static-files:/var/www/html
+    networks:
+      - web-network
+    depends_on:
+      - app1
+      - app2
+
+  # Application instance 1
+  app1:
+    image: python:3.9-slim
+    command: |
+      sh -c '
+        pip install flask
+        cat > app.py << EOF
+        from flask import Flask, jsonify
+        import os
+        app = Flask(__name__)
+        
+        @app.route("/")
+        def hello():
+            return jsonify({
+                "message": "Hello from App 1",
+                "instance": os.environ.get("HOSTNAME"),
+                "config": os.environ.get("APP_CONFIG", "default")
+            })
+        
+        if __name__ == "__main__":
+            app.run(host="0.0.0.0", port=5000)
+        EOF
+        python app.py
+      '
+    configs:
+      - source: app_config
+        target: /app/config.json
+        mode: 0644
+    environment:
+      - APP_CONFIG=production
+    networks:
+      - web-network
+
+  # Application instance 2
+  app2:
+    image: python:3.9-slim
+    command: |
+      sh -c '
+        pip install flask
+        cat > app.py << EOF
+        from flask import Flask, jsonify
+        import os
+        import json
+        app = Flask(__name__)
+        
+        @app.route("/")
+        def hello():
+            # Read config file
+            try:
+                with open("/app/config.json") as f:
+                    config = json.load(f)
+            except:
+                config = {}
+            
+            return jsonify({
+                "message": "Hello from App 2",
+                "instance": os.environ.get("HOSTNAME"),
+                "config": config
+            })
+        
+        if __name__ == "__main__":
+            app.run(host="0.0.0.0", port=5000)
+        EOF
+        python app.py
+      '
+    configs:
+      - source: app_config
+        target: /app/config.json
+      - source: logging_config
+        target: /app/logging.conf
+    networks:
+      - web-network
+
+  # Database with configuration
+  database:
+    image: postgres:13-alpine
+    environment:
+      - POSTGRES_DB=configdb
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+    configs:
+      - source: postgres_config
+        target: /etc/postgresql/postgresql.conf
+        mode: 0644
+      - source: pg_hba_config
+        target: /etc/postgresql/pg_hba.conf
+        mode: 0600
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - web-network
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+
+  # Redis with custom configuration
+  redis:
+    image: redis:6-alpine
+    configs:
+      - source: redis_config
+        target: /usr/local/etc/redis/redis.conf
+        mode: 0644
+    networks:
+      - web-network
+    command: redis-server /usr/local/etc/redis/redis.conf
+
+  # Monitoring with Prometheus config
+  prometheus:
+    image: prom/prometheus
+    ports:
+      - "9090:9090"
+    configs:
+      - source: prometheus_config
+        target: /etc/prometheus/prometheus.yml
+      - source: alert_rules
+        target: /etc/prometheus/rules/alerts.yml
+    volumes:
+      - prometheus-data:/prometheus
+    networks:
+      - web-network
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--web.enable-lifecycle"
+
+# Configuration files
+configs:
+  # Nginx configuration
+  nginx_config:
+    file: ./configs/nginx.conf
+
+  ssl_config:
+    file: ./configs/ssl.conf
+
+  upstream_config:
+    file: ./configs/upstream.conf
+
+  # Application configuration
+  app_config:
+    file: ./configs/app-config.json
+
+  logging_config:
+    file: ./configs/logging.conf
+
+  # Database configurations
+  postgres_config:
+    file: ./configs/postgresql.conf
+
+  pg_hba_config:
+    file: ./configs/pg_hba.conf
+
+  # Redis configuration
+  redis_config:
+    file: ./configs/redis.conf
+
+  # Monitoring configurations
+  prometheus_config:
+    file: ./configs/prometheus.yml
+
+  alert_rules:
+    file: ./configs/alert-rules.yml
+
+volumes:
+  db-data:
+  prometheus-data:
+  static-files:
+
+networks:
+  web-network:
+    driver: bridge
+# Configuration file examples to create in ./configs/:
+#
+# nginx.conf:
+# events { worker_connections 1024; }
+# http {
+#   include /etc/nginx/conf.d/*.conf;
+#   upstream backend {
+#     server app1:5000;
+#     server app2:5000;
+#   }
+#   server {
+#     listen 80;
+#     location / {
+#       proxy_pass http://backend;
+#     }
+#   }
+# }
+#
+# app-config.json:
+# {
+#   "database_url": "postgresql://user:password@database:5432/configdb",
+#   "redis_url": "redis://redis:6379",
+#   "debug": false,
+#   "log_level": "INFO"
+# }
+#
+# prometheus.yml:
+# global:
+#   scrape_interval: 15s
+# scrape_configs:
+#   - job_name: 'apps'
+#     static_configs:
+#       - targets: ['app1:5000', 'app2:5000']

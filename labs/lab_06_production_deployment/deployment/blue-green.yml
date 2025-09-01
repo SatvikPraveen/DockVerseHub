@@ -1,0 +1,251 @@
+# Location: labs/lab_06_production_deployment/deployment/blue-green.yml
+version: "3.8"
+
+services:
+  # Blue Environment (Current Production)
+  user-service-blue:
+    build:
+      context: ../../lab_05_microservices_demo/user-service
+      dockerfile: Dockerfile
+    container_name: user-service-blue
+    environment:
+      - DATABASE_URL=postgresql://userdb_user:${USERDB_PASSWORD}@postgres-user:5432/userdb
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET=${JWT_SECRET}
+      - ENVIRONMENT=production
+      - DEPLOYMENT_SLOT=blue
+      - SERVICE_VERSION=${BLUE_VERSION:-v1.0.0}
+    networks:
+      - backend-blue
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+
+  order-service-blue:
+    build:
+      context: ../../lab_05_microservices_demo/order-service
+      dockerfile: Dockerfile
+    container_name: order-service-blue
+    environment:
+      - DATABASE_URL=postgresql://orderdb_user:${ORDERDB_PASSWORD}@postgres-order:5432/orderdb
+      - USER_SERVICE_URL=http://user-service-blue:8000
+      - ENVIRONMENT=production
+      - DEPLOYMENT_SLOT=blue
+      - SERVICE_VERSION=${BLUE_VERSION:-v1.0.0}
+    networks:
+      - backend-blue
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  notification-service-blue:
+    build:
+      context: ../../lab_05_microservices_demo/notification-service
+      dockerfile: Dockerfile
+    container_name: notification-service-blue
+    environment:
+      - MONGODB_URL=mongodb://notifydb_user:${NOTIFYDB_PASSWORD}@mongodb:27017/notifydb
+      - ENVIRONMENT=production
+      - DEPLOYMENT_SLOT=blue
+      - SERVICE_VERSION=${BLUE_VERSION:-v1.0.0}
+    networks:
+      - backend-blue
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Green Environment (New Version for Deployment)
+  user-service-green:
+    build:
+      context: ../../lab_05_microservices_demo/user-service
+      dockerfile: Dockerfile
+    container_name: user-service-green
+    environment:
+      - DATABASE_URL=postgresql://userdb_user:${USERDB_PASSWORD}@postgres-user:5432/userdb
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET=${JWT_SECRET}
+      - ENVIRONMENT=production
+      - DEPLOYMENT_SLOT=green
+      - SERVICE_VERSION=${GREEN_VERSION:-v1.1.0}
+    networks:
+      - backend-green
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+    profiles:
+      - green
+
+  order-service-green:
+    build:
+      context: ../../lab_05_microservices_demo/order-service
+      dockerfile: Dockerfile
+    container_name: order-service-green
+    environment:
+      - DATABASE_URL=postgresql://orderdb_user:${ORDERDB_PASSWORD}@postgres-order:5432/orderdb
+      - USER_SERVICE_URL=http://user-service-green:8000
+      - ENVIRONMENT=production
+      - DEPLOYMENT_SLOT=green
+      - SERVICE_VERSION=${GREEN_VERSION:-v1.1.0}
+    networks:
+      - backend-green
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    profiles:
+      - green
+
+  notification-service-green:
+    build:
+      context: ../../lab_05_microservices_demo/notification-service
+      dockerfile: Dockerfile
+    container_name: notification-service-green
+    environment:
+      - MONGODB_URL=mongodb://notifydb_user:${NOTIFYDB_PASSWORD}@mongodb:27017/notifydb
+      - ENVIRONMENT=production
+      - DEPLOYMENT_SLOT=green
+      - SERVICE_VERSION=${GREEN_VERSION:-v1.1.0}
+    networks:
+      - backend-green
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    profiles:
+      - green
+
+  # Load Balancer/Traffic Router
+  traffic-router:
+    image: nginx:1.25-alpine
+    container_name: traffic-router
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx-router.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    environment:
+      - ACTIVE_SLOT=${ACTIVE_SLOT:-blue}
+    networks:
+      - backend-blue
+      - backend-green
+      - frontend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Deployment Controller
+  deployment-controller:
+    image: alpine:latest
+    container_name: deployment-controller
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./deployment-scripts:/scripts:ro
+    environment:
+      - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-lab06}
+      - HEALTH_CHECK_URL=http://traffic-router/health
+      - ROLLBACK_THRESHOLD=5
+      - SLACK_WEBHOOK=${SLACK_WEBHOOK:-}
+    command: >
+      sh -c "
+        apk add --no-cache docker-cli curl &&
+        echo 'Deployment controller ready' &&
+        tail -f /dev/null
+      "
+    networks:
+      - backend-blue
+      - backend-green
+    restart: unless-stopped
+
+  # Health Check Monitor
+  health-monitor:
+    image: alpine:latest
+    container_name: health-monitor
+    volumes:
+      - ./monitoring-scripts:/scripts:ro
+    environment:
+      - BLUE_ENDPOINTS=http://user-service-blue:8000/health,http://order-service-blue:8001/health,http://notification-service-blue:8002/health
+      - GREEN_ENDPOINTS=http://user-service-green:8000/health,http://order-service-green:8001/health,http://notification-service-green:8002/health
+      - CHECK_INTERVAL=10
+    command: >
+      sh -c "
+        apk add --no-cache curl jq &&
+        while true; do
+          /scripts/health-check.sh
+          sleep \${CHECK_INTERVAL}
+        done
+      "
+    networks:
+      - backend-blue
+      - backend-green
+    restart: unless-stopped
+
+  # Database Migration Service
+  db-migrator:
+    image: migrate/migrate:latest
+    container_name: db-migrator
+    volumes:
+      - ../../lab_05_microservices_demo/user-service/migrations:/migrations/user:ro
+      - ../../lab_05_microservices_demo/order-service/migrations:/migrations/order:ro
+    environment:
+      - USER_DB_URL=postgresql://userdb_user:${USERDB_PASSWORD}@postgres-user:5432/userdb?sslmode=disable
+      - ORDER_DB_URL=postgresql://orderdb_user:${ORDERDB_PASSWORD}@postgres-order:5432/orderdb?sslmode=disable
+    command: >
+      sh -c "
+        echo 'Running database migrations...'
+        migrate -path /migrations/user -database \${USER_DB_URL} up
+        migrate -path /migrations/order -database \${ORDER_DB_URL} up
+        echo 'Migrations completed'
+      "
+    networks:
+      - backend-blue
+      - backend-green
+    profiles:
+      - migrate
+
+networks:
+  frontend:
+    driver: bridge
+  backend-blue:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.40.0.0/16
+  backend-green:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.41.0.0/16

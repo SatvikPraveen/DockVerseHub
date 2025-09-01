@@ -1,0 +1,522 @@
+# 10_ci_cd_integration/github-actions/multi-stage-ci.yml
+
+name: Multi-Stage CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop, "feature/*", "release/*"]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: "0 2 * * 1" # Weekly security scan on Mondays
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  NODE_VERSION: "18"
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # Stage 1: Code Quality and Static Analysis
+  code-quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint:js
+
+      - name: Run Prettier
+        run: npm run lint:format
+
+      - name: Run TypeScript check
+        run: npm run type-check
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: CodeQL Analysis
+        uses: github/codeql-action/init@v2
+        with:
+          languages: javascript, python
+
+      - name: CodeQL Autobuild
+        uses: github/codeql-action/autobuild@v2
+
+      - name: CodeQL Analysis Results
+        uses: github/codeql-action/analyze@v2
+
+  # Stage 2: Unit Tests with Coverage
+  unit-tests:
+    runs-on: ubuntu-latest
+    needs: code-quality
+
+    strategy:
+      matrix:
+        node-version: [16, 18, 20]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm run test:unit -- --coverage --reporter=json --outputFile=test-results.json
+        env:
+          NODE_ENV: test
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results-${{ matrix.node-version }}
+          path: |
+            test-results.json
+            coverage/
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage/lcov.info
+          flags: unit-tests-${{ matrix.node-version }}
+          name: codecov-${{ matrix.node-version }}
+
+  # Stage 3: Docker Build and Scan
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: [code-quality, unit-tests]
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          install: true
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build multi-stage Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.multistage
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=gha,scope=build-cache
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache
+          cache-to: |
+            type=gha,scope=build-cache,mode=max
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache,mode=max
+          build-args: |
+            NODE_VERSION=${{ env.NODE_VERSION }}
+            BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
+          target: production
+
+      - name: Run Hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ./Dockerfile.multistage
+          format: sarif
+          output-file: hadolint-results.sarif
+          no-fail: true
+
+      - name: Upload Hadolint results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: hadolint-results.sarif
+
+      - name: Docker Scout scan
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          image: ${{ steps.meta.outputs.tags }}
+          only-severities: critical,high
+          exit-code: false
+          write-comment: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Stage 4: Integration Tests
+  integration-tests:
+    runs-on: ubuntu-latest
+    needs: docker-build
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start application container
+        run: |
+          docker run -d \
+            --name app-integration \
+            --network host \
+            -e DATABASE_URL=postgres://testuser:testpass@localhost:5432/testdb \
+            -e REDIS_URL=redis://localhost:6379 \
+            -e NODE_ENV=test \
+            -p 3000:3000 \
+            ${{ needs.docker-build.outputs.image-tag }}
+
+      - name: Wait for application startup
+        run: |
+          timeout 120 bash -c '
+            until curl -f -s http://localhost:3000/health > /dev/null; do
+              echo "Waiting for application..."
+              sleep 2
+            done
+          '
+
+      - name: Run database migrations
+        run: |
+          docker exec app-integration npm run db:migrate
+
+      - name: Run integration tests
+        run: |
+          docker run --rm \
+            --network host \
+            -v ${{ github.workspace }}/tests:/workspace/tests \
+            -w /workspace \
+            node:${{ env.NODE_VERSION }}-alpine \
+            sh -c "npm ci && npm run test:integration"
+
+      - name: Run API tests with Newman
+        run: |
+          docker run --rm \
+            --network host \
+            -v ${{ github.workspace }}/postman:/etc/newman \
+            postman/newman:alpine \
+            run api-tests.json \
+            --environment test-environment.json \
+            --reporters cli,json \
+            --reporter-json-export /etc/newman/results.json
+
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: integration-test-results
+          path: |
+            postman/results.json
+
+      - name: Cleanup containers
+        if: always()
+        run: docker rm -f app-integration
+
+  # Stage 5: End-to-End Tests
+  e2e-tests:
+    runs-on: ubuntu-latest
+    needs: [docker-build, integration-tests]
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup test environment
+        run: |
+          docker-compose -f docker-compose.e2e.yml up -d
+
+      - name: Wait for services
+        run: |
+          timeout 180 bash -c '
+            until curl -f -s http://localhost:3000/health > /dev/null; do
+              echo "Waiting for application..."
+              sleep 5
+            done
+          '
+
+      - name: Setup Playwright
+        uses: microsoft/playwright-github-action@v1
+
+      - name: Install Playwright dependencies
+        run: |
+          cd e2e-tests
+          npm ci
+          npx playwright install --with-deps
+
+      - name: Run E2E tests
+        run: |
+          cd e2e-tests
+          npx playwright test --reporter=html,junit
+
+      - name: Upload E2E test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: e2e-test-results
+          path: |
+            e2e-tests/test-results/
+            e2e-tests/playwright-report/
+
+      - name: Cleanup E2E environment
+        if: always()
+        run: docker-compose -f docker-compose.e2e.yml down
+
+  # Stage 6: Performance and Load Testing
+  performance-tests:
+    runs-on: ubuntu-latest
+    needs: docker-build
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start application for performance testing
+        run: |
+          docker run -d \
+            --name app-perf \
+            -p 3000:3000 \
+            -e NODE_ENV=production \
+            ${{ needs.docker-build.outputs.image-tag }}
+
+      - name: Wait for application
+        run: |
+          timeout 60 bash -c 'until curl -f http://localhost:3000/health; do sleep 2; done'
+
+      - name: Install K6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+
+      - name: Run load tests
+        run: |
+          k6 run \
+            --out json=load-test-results.json \
+            --summary-export=load-test-summary.json \
+            tests/performance/load-test.js
+
+      - name: Run stress tests
+        run: |
+          k6 run \
+            --out json=stress-test-results.json \
+            --summary-export=stress-test-summary.json \
+            tests/performance/stress-test.js
+
+      - name: Upload performance results
+        uses: actions/upload-artifact@v3
+        with:
+          name: performance-test-results
+          path: |
+            *-test-results.json
+            *-test-summary.json
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f app-perf
+
+  # Stage 7: Security Scanning
+  security-scanning:
+    runs-on: ubuntu-latest
+    needs: docker-build
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ needs.docker-build.outputs.image-tag }}
+          format: "sarif"
+          output: "trivy-results.sarif"
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: "trivy-results.sarif"
+
+      - name: Run Grype vulnerability scanner
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+          grype ${{ needs.docker-build.outputs.image-tag }} -o json --file grype-results.json
+
+      - name: Run Syft SBOM generation
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+          syft ${{ needs.docker-build.outputs.image-tag }} -o spdx-json --file sbom.spdx.json
+
+      - name: Upload security artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-scan-results
+          path: |
+            grype-results.json
+            sbom.spdx.json
+
+  # Stage 8: Deployment to Staging
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs: [integration-tests, e2e-tests, security-scanning]
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to staging
+        run: |
+          echo "Deploying ${{ needs.docker-build.outputs.image-tag }} to staging"
+          # Add your staging deployment logic here
+          # kubectl set image deployment/app app=${{ needs.docker-build.outputs.image-tag }}
+
+      - name: Run smoke tests
+        run: |
+          # Add smoke test logic for staging
+          curl -f https://staging.example.com/health
+
+  # Stage 9: Production Deployment Approval
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs: [integration-tests, e2e-tests, performance-tests, security-scanning]
+    if: github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to production
+        run: |
+          echo "Deploying ${{ needs.docker-build.outputs.image-tag }} to production"
+          # Add your production deployment logic here
+
+      - name: Post-deployment verification
+        run: |
+          # Add production verification tests
+          curl -f https://api.example.com/health
+
+  # Stage 10: Notification and Reporting
+  notify-results:
+    runs-on: ubuntu-latest
+    needs:
+      [
+        code-quality,
+        unit-tests,
+        integration-tests,
+        e2e-tests,
+        performance-tests,
+        security-scanning,
+        deploy-staging,
+        deploy-production,
+      ]
+    if: always()
+
+    steps:
+      - name: Collect pipeline results
+        run: |
+          echo "Pipeline Results Summary:"
+          echo "Code Quality: ${{ needs.code-quality.result }}"
+          echo "Unit Tests: ${{ needs.unit-tests.result }}"
+          echo "Integration Tests: ${{ needs.integration-tests.result }}"
+          echo "E2E Tests: ${{ needs.e2e-tests.result }}"
+          echo "Performance Tests: ${{ needs.performance-tests.result }}"
+          echo "Security Scanning: ${{ needs.security-scanning.result }}"
+          echo "Staging Deploy: ${{ needs.deploy-staging.result }}"
+          echo "Production Deploy: ${{ needs.deploy-production.result }}"
+
+      - name: Send Slack notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: |
+            Multi-Stage CI/CD Pipeline Completed
+
+            📊 Results:
+            • Code Quality: ${{ needs.code-quality.result }}
+            • Unit Tests: ${{ needs.unit-tests.result }}
+            • Integration: ${{ needs.integration-tests.result }}
+            • E2E Tests: ${{ needs.e2e-tests.result }}
+            • Performance: ${{ needs.performance-tests.result }}
+            • Security: ${{ needs.security-scanning.result }}
+
+            🚀 Deployments:
+            • Staging: ${{ needs.deploy-staging.result }}
+            • Production: ${{ needs.deploy-production.result }}
+
+            📦 Image: ${{ needs.docker-build.outputs.image-tag }}
+            💾 Digest: ${{ needs.docker-build.outputs.image-digest }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        if: always()

@@ -1,0 +1,9 @@
+Image,Size (MB),Layers,Status,Base Image Size (MB),App Layer Size (MB),Dependencies Size (MB),Compression Ratio (%),Vulnerabilities
+Naive Build,1200,15,Success,800,150,250,12,247
+Optimized Build,180,8,Success,120,35,25,45,23
+Alpine Build,95,6,Success,45,25,25,58,8
+Distroless Build,78,4,Success,35,18,25,62,0
+Naive Build (Uncompressed),1500,15,Success,950,200,350,20,247
+Optimized Build (Uncompressed),220,8,Success,140,45,35,18,23
+Alpine Build (Uncompressed),115,6,Success,55,30,30,17,8
+Distroless Build (Uncompressed),95,4,Success,42,23,30,18,0

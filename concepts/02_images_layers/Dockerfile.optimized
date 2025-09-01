@@ -1,0 +1,97 @@
+# File Location: concepts/02_images_layers/Dockerfile.optimized
+# Multi-stage optimized build example
+
+# Build stage
+FROM ubuntu:20.04 AS builder
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build dependencies in single layer with cleanup
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    python3 \
+    python3-pip \
+    python3-dev \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create app directory
+WORKDIR /app
+
+# Copy only requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies in build stage
+RUN pip3 install --no-cache-dir --user -r requirements.txt
+
+# Copy application source
+COPY src/ ./src/
+COPY static/ ./static/
+COPY templates/ ./templates/
+COPY app.py .
+
+# Build/compile if needed (example: compile assets)
+RUN python3 -m compileall src/
+
+# Production stage
+FROM ubuntu:20.04 AS production
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install only runtime dependencies
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-distutils \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean \
+    && rm -rf /tmp/* /var/tmp/*
+
+# Create non-root user
+RUN groupadd -r appgroup && useradd -r -g appgroup -s /bin/false appuser
+
+# Set working directory
+WORKDIR /app
+
+# Copy Python packages from build stage
+COPY --from=builder /root/.local /home/appuser/.local
+
+# Copy application from build stage
+COPY --from=builder /app/app.py .
+COPY --from=builder /app/src/ ./src/
+COPY --from=builder /app/static/ ./static/
+COPY --from=builder /app/templates/ ./templates/
+
+# Set PATH for user packages
+ENV PATH=/home/appuser/.local/bin:$PATH
+
+# Change ownership to non-root user
+RUN chown -R appuser:appgroup /app
+
+# Switch to non-root user
+USER appuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:5000/health || exit 1
+
+# Expose port
+EXPOSE 5000
+
+# Use exec form for proper signal handling
+CMD ["python3", "app.py"]
+
+# Optimization techniques demonstrated:
+# 1. Multi-stage build separates build and runtime dependencies
+# 2. Combines RUN commands to minimize layers
+# 3. Cleans package manager caches
+# 4. Copies only necessary files
+# 5. Runs as non-root user for security
+# 6. Uses specific COPY commands for better caching
+# 7. Includes health check
+# 8. Uses exec form in CMD for proper signal handling
+# 9. Sets proper environment variables

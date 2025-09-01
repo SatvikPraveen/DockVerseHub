@@ -1,0 +1,487 @@
+# 08_orchestration/swarm-advanced/ingress-routing.yml
+
+version: '3.8'
+
+services:
+  # Traefik reverse proxy with ingress routing
+  traefik:
+    image: traefik:v3.0
+    ports:
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: ingress
+      - target: 443
+        published: 443
+        protocol: tcp
+        mode: ingress
+      - target: 8080
+        published: 8080
+        protocol: tcp
+        mode: ingress
+    networks:
+      - traefik-public
+      - internal
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-data:/data
+    configs:
+      - source: traefik-config
+        target: /etc/traefik/traefik.yml
+    secrets:
+      - source: traefik-cert
+        target: /certs/cert.pem
+      - source: traefik-key
+        target: /certs/key.pem
+    command:
+      - --configfile=/etc/traefik/traefik.yml
+    deploy:
+      replicas: 3
+      placement:
+        constraints:
+          - node.labels.ingress == enabled
+        preferences:
+          - spread: node.labels.zone
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.dashboard.rule=Host(`traefik.local`)"
+        - "traefik.http.routers.dashboard.tls=true"
+        - "traefik.http.services.dashboard.loadbalancer.server.port=8080"
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Main web application
+  webapp:
+    image: nginx:alpine
+    networks:
+      - traefik-public
+      - internal
+    configs:
+      - source: webapp-config
+        target: /etc/nginx/nginx.conf
+    deploy:
+      replicas: 4
+      placement:
+        constraints:
+          - node.role == worker
+        preferences:
+          - spread: node.labels.zone
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.webapp.rule=Host(`app.local`) || Host(`www.app.local`)"
+        - "traefik.http.routers.webapp.tls=true"
+        - "traefik.http.routers.webapp.tls.certresolver=letsencrypt"
+        - "traefik.http.services.webapp.loadbalancer.server.port=80"
+        - "traefik.http.services.webapp.loadbalancer.healthcheck.path=/health"
+        - "traefik.http.services.webapp.loadbalancer.healthcheck.interval=30s"
+        - "traefik.http.middlewares.webapp-compress.compress=true"
+        - "traefik.http.middlewares.webapp-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+        - "traefik.http.routers.webapp.middlewares=webapp-compress,webapp-headers"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # API service with versioned routing
+  api-v1:
+    image: python:3.11-alpine
+    networks:
+      - traefik-public
+      - internal
+      - backend
+    environment:
+      - API_VERSION=v1
+      - DATABASE_URL=postgresql://user:pass@db:5432/appdb
+    command: |
+      sh -c 'pip install flask &&
+             cat > /app.py << "EOF"
+from flask import Flask, jsonify
+import os
+app = Flask(__name__)
+version = os.getenv("API_VERSION", "v1")
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "healthy", "version": version})
+
+@app.route("/api/users")
+def users():
+    return jsonify({
+        "users": [{"id": 1, "name": "John"}, {"id": 2, "name": "Jane"}],
+        "version": version
+    })
+
+@app.route("/api/data")
+def data():
+    return jsonify({"data": "legacy format", "version": version})
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)
+EOF
+             python /app.py'
+    deploy:
+      replicas: 3
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.api-v1.rule=Host(`api.local`) && PathPrefix(`/api/v1`)"
+        - "traefik.http.routers.api-v1.tls=true"
+        - "traefik.http.services.api-v1.loadbalancer.server.port=8080"
+        - "traefik.http.middlewares.api-v1-strip.stripprefix.prefixes=/api/v1"
+        - "traefik.http.routers.api-v1.middlewares=api-v1-strip"
+        - "traefik.http.services.api-v1.loadbalancer.sticky.cookie.name=api-v1-session"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # API v2 with canary deployment
+  api-v2:
+    image: python:3.11-alpine
+    networks:
+      - traefik-public
+      - internal
+      - backend
+    environment:
+      - API_VERSION=v2
+      - DATABASE_URL=postgresql://user:pass@db:5432/appdb
+    command: |
+      sh -c 'pip install flask &&
+             cat > /app.py << "EOF"
+from flask import Flask, jsonify
+import os
+app = Flask(__name__)
+version = os.getenv("API_VERSION", "v2")
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "healthy", "version": version})
+
+@app.route("/api/users")
+def users():
+    return jsonify({
+        "users": [
+            {"id": 1, "name": "John", "email": "john@example.com"},
+            {"id": 2, "name": "Jane", "email": "jane@example.com"}
+        ],
+        "version": version,
+        "features": ["enhanced_data", "email_support"]
+    })
+
+@app.route("/api/data")
+def data():
+    return jsonify({
+        "data": {
+            "format": "enhanced",
+            "timestamp": "2023-01-01T00:00:00Z",
+            "metadata": {"source": "api-v2"}
+        },
+        "version": version
+    })
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)
+EOF
+             python /app.py'
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.api-v2.rule=Host(`api.local`) && (PathPrefix(`/api/v2`) || (PathPrefix(`/api`) && Headers(`X-API-Version`, `v2`)))"
+        - "traefik.http.routers.api-v2.tls=true"
+        - "traefik.http.services.api-v2.loadbalancer.server.port=8080"
+        - "traefik.http.middlewares.api-v2-strip.stripprefix.prefixes=/api/v2"
+        - "traefik.http.routers.api-v2.middlewares=api-v2-strip"
+        - "traefik.http.services.api-v2.loadbalancer.sticky.cookie.name=api-v2-session"
+
+  # Weighted routing between API versions
+  api-router:
+    image: traefik:v3.0
+    networks:
+      - traefik-public
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.api-main.rule=Host(`api.local`) && PathPrefix(`/api`)"
+        - "traefik.http.routers.api-main.tls=true"
+        - "traefik.http.services.api-weighted.loadbalancer.sticky=false"
+        - "traefik.http.services.api-v1-weighted.loadbalancer.server.port=8080"
+        - "traefik.http.services.api-v2-weighted.loadbalancer.server.port=8080"
+        # 80% to v1, 20% to v2 (canary)
+        - "traefik.http.routers.api-main.service=api-weighted"
+        - "traefik.http.services.api-weighted.weighted.services[0].name=api-v1"
+        - "traefik.http.services.api-weighted.weighted.services[0].weight=80"
+        - "traefik.http.services.api-weighted.weighted.services[1].name=api-v2"
+        - "traefik.http.services.api-weighted.weighted.services[1].weight=20"
+
+  # Admin panel with authentication
+  admin:
+    image: nginx:alpine
+    networks:
+      - traefik-public
+      - internal
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+          - node.labels.security == high
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.admin.rule=Host(`admin.local`)"
+        - "traefik.http.routers.admin.tls=true"
+        - "traefik.http.services.admin.loadbalancer.server.port=80"
+        - "traefik.http.middlewares.admin-auth.basicauth.users=admin:$$2y$$10$$rqiNKz5I1z5I1z5I1z5I1O"
+        - "traefik.http.middlewares.admin-whitelist.ipwhitelist.sourcerange=192.168.1.0/24,10.0.0.0/8"
+        - "traefik.http.routers.admin.middlewares=admin-auth,admin-whitelist"
+
+  # Static file server with caching
+  static:
+    image: nginx:alpine
+    networks:
+      - traefik-public
+    volumes:
+      - static-files:/usr/share/nginx/html:ro
+    deploy:
+      replicas: 3
+      placement:
+        constraints:
+          - node.role == worker
+        preferences:
+          - spread: node.labels.zone
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.static.rule=Host(`cdn.local`) || (Host(`app.local`) && PathPrefix(`/static`))"
+        - "traefik.http.routers.static.tls=true"
+        - "traefik.http.services.static.loadbalancer.server.port=80"
+        - "traefik.http.middlewares.static-cache.headers.customresponseheaders.Cache-Control=public, max-age=31536000"
+        - "traefik.http.middlewares.static-compress.compress=true"
+        - "traefik.http.routers.static.middlewares=static-cache,static-compress"
+
+  # WebSocket service
+  websocket:
+    image: python:3.11-alpine
+    networks:
+      - traefik-public
+      - internal
+    command: |
+      sh -c 'pip install websockets asyncio &&
+             cat > /ws_server.py << "EOF"
+import asyncio
+import websockets
+import json
+from datetime import datetime
+
+connected = set()
+
+async def handler(websocket, path):
+    connected.add(websocket)
+    try:
+        await websocket.send(json.dumps({
+            "type": "welcome",
+            "timestamp": datetime.now().isoformat()
+        }))
+        async for message in websocket:
+            # Broadcast to all connected clients
+            data = json.loads(message)
+            response = {
+                "type": "broadcast",
+                "data": data,
+                "timestamp": datetime.now().isoformat()
+            }
+            await asyncio.gather(
+                *[client.send(json.dumps(response)) for client in connected],
+                return_exceptions=True
+            )
+    except websockets.exceptions.ConnectionClosed:
+        pass
+    finally:
+        connected.remove(websocket)
+
+start_server = websockets.serve(handler, "0.0.0.0", 8080)
+asyncio.get_event_loop().run_until_complete(start_server)
+asyncio.get_event_loop().run_forever()
+EOF
+             python /ws_server.py'
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.websocket.rule=Host(`ws.local`) || (Host(`app.local`) && PathPrefix(`/ws`))"
+        - "traefik.http.routers.websocket.tls=true"
+        - "traefik.http.services.websocket.loadbalancer.server.port=8080"
+        - "traefik.http.services.websocket.loadbalancer.sticky.cookie.name=ws-session"
+
+  # gRPC service
+  grpc-service:
+    image: python:3.11-alpine
+    networks:
+      - traefik-public
+      - internal
+    command: |
+      sh -c 'pip install grpcio grpcio-tools &&
+             python -c "
+import grpc
+from concurrent import futures
+import time
+
+class GreeterServicer:
+    def SayHello(self, request, context):
+        return HelloReply(message=f\"Hello {request.name}!\")
+
+def serve():
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    # Add servicer here
+    server.add_insecure_port(\"[::]:50051\")
+    server.start()
+    print(\"gRPC server started on port 50051\")
+    try:
+        while True:
+            time.sleep(86400)
+    except KeyboardInterrupt:
+        server.stop(0)
+
+if __name__ == \"__main__\":
+    serve()
+"'
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.grpc.rule=Host(`grpc.local`)"
+        - "traefik.http.routers.grpc.tls=true"
+        - "traefik.http.services.grpc.loadbalancer.server.port=50051"
+        - "traefik.http.services.grpc.loadbalancer.server.scheme=h2c"
+
+  # Health check service
+  healthcheck:
+    image: alpine:latest
+    networks:
+      - internal
+    command: |
+      sh -c 'apk add --no-cache curl &&
+             while true; do
+               echo "Health check at $(date)"
+               curl -f http://webapp/health || echo "webapp unhealthy"
+               curl -f http://api-v1:8080/health || echo "api-v1 unhealthy"
+               curl -f http://api-v2:8080/health || echo "api-v2 unhealthy"
+               sleep 60
+             done'
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
+
+networks:
+  traefik-public:
+    external: true
+    
+  internal:
+    driver: overlay
+    internal: true
+    
+  backend:
+    driver: overlay
+    driver_opts:
+      encrypted: "true"
+
+volumes:
+  traefik-data:
+    driver: local
+    
+  static-files:
+    driver: local
+
+secrets:
+  traefik-cert:
+    external: true
+    
+  traefik-key:
+    external: true
+
+configs:
+  traefik-config:
+    external: true
+    
+  webapp-config:
+    external: true

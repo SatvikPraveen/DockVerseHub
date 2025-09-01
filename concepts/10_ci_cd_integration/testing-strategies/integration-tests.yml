@@ -1,0 +1,485 @@
+# 10_ci_cd_integration/testing-strategies/integration-tests.yml
+
+# Integration Testing with Docker Compose
+# Complete test environment with all dependencies
+
+version: "3.8"
+
+services:
+  # Application under test
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: test
+    environment:
+      NODE_ENV: test
+      DATABASE_URL: postgres://testuser:testpass@postgres:5432/testdb
+      REDIS_URL: redis://redis:6379
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      KAFKA_BROKERS: kafka:9092
+      MONGODB_URL: mongodb://mongodb:27017/testdb
+      MYSQL_URL: mysql://testuser:testpass@mysql:3306/testdb
+      API_BASE_URL: http://api-mock:3001
+      FEATURE_FLAGS_URL: http://feature-flags:8080
+      METRICS_ENDPOINT: http://prometheus:9090
+      LOG_LEVEL: debug
+      TEST_MODE: integration
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      mongodb:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      api-mock:
+        condition: service_started
+      feature-flags:
+        condition: service_started
+    volumes:
+      - ./tests/integration:/app/tests/integration:ro
+      - ./test-results:/app/test-results
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpass
+      POSTGRES_DB: testdb
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./tests/fixtures/postgres:/docker-entrypoint-initdb.d:ro
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U testuser -d testdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./tests/fixtures/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Elasticsearch
+  elasticsearch:
+    image: elasticsearch:8.8.0
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: false
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./tests/fixtures/rabbitmq:/etc/rabbitmq:ro
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Apache Kafka
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
+    ports:
+      - "9092:9092"
+    depends_on:
+      - zookeeper
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - test-network
+
+  # Zookeeper for Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+    networks:
+      - test-network
+
+  # MongoDB
+  mongodb:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: rootpass
+      MONGO_INITDB_DATABASE: testdb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - ./tests/fixtures/mongo-init.js:/docker-entrypoint-initdb.d/init.js:ro
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MySQL
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: testdb
+      MYSQL_USER: testuser
+      MYSQL_PASSWORD: testpass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./tests/fixtures/mysql:/docker-entrypoint-initdb.d:ro
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # External API Mock Server
+  api-mock:
+    image: stoplight/prism:4
+    command: mock -h 0.0.0.0 /tmp/api-spec.yaml
+    ports:
+      - "3001:4010"
+    volumes:
+      - ./tests/fixtures/api-spec.yaml:/tmp/api-spec.yaml:ro
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4010"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Feature Flags Service Mock
+  feature-flags:
+    image: node:18-alpine
+    working_dir: /app
+    command: >
+      sh -c "
+        echo 'const express = require(\"express\"); const app = express();
+        app.use(express.json());
+        const flags = {\"new-feature\": {enabled: true, rollout: 50}};
+        app.get(\"/flags\", (req, res) => res.json(flags));
+        app.get(\"/flags/:name\", (req, res) => res.json(flags[req.params.name] || {enabled: false}));
+        app.listen(8080, \"0.0.0.0\", () => console.log(\"Feature flags mock running on port 8080\"));' > server.js &&
+        npm init -y && npm install express && node server.js
+      "
+    ports:
+      - "8080:8080"
+    networks:
+      - test-network
+
+  # Load Balancer for Testing
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./tests/fixtures/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app
+    networks:
+      - test-network
+
+  # Prometheus for Metrics Testing
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./tests/fixtures/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - test-network
+
+  # Test Runner Service
+  test-runner:
+    build:
+      context: .
+      dockerfile: tests/integration/Dockerfile.test-runner
+    environment:
+      APP_URL: http://app:3000
+      API_MOCK_URL: http://api-mock:4010
+      FEATURE_FLAGS_URL: http://feature-flags:8080
+      POSTGRES_URL: postgres://testuser:testpass@postgres:5432/testdb
+      REDIS_URL: redis://redis:6379
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      KAFKA_BROKERS: kafka:9092
+      MONGODB_URL: mongodb://mongodb:27017/testdb
+      MYSQL_URL: mysql://testuser:testpass@mysql:3306/testdb
+      PROMETHEUS_URL: http://prometheus:9090
+    depends_on:
+      app:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    volumes:
+      - ./tests/integration:/tests:ro
+      - ./test-results:/test-results
+    networks:
+      - test-network
+    command: >
+      sh -c "
+        echo 'Waiting for all services to be ready...' &&
+        sleep 30 &&
+        echo 'Running integration tests...' &&
+        npm test
+      "
+
+  # Database Migration Test
+  migration-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migration
+    environment:
+      DATABASE_URL: postgres://testuser:testpass@postgres:5432/testdb
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/app/migrations:ro
+      - ./test-results:/app/test-results
+    networks:
+      - test-network
+    command: >
+      sh -c "
+        echo 'Running migration tests...' &&
+        npm run test:migrations
+      "
+
+  # Performance Test Service
+  performance-test:
+    image: grafana/k6:latest
+    environment:
+      APP_URL: http://app:3000
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - ./tests/performance:/scripts:ro
+      - ./test-results:/results
+    networks:
+      - test-network
+    command: >
+      sh -c "
+        sleep 60 &&
+        k6 run --out json=/results/performance-results.json /scripts/load-test.js
+      "
+
+  # Security Test Service
+  security-test:
+    image: owasp/zap2docker-stable
+    environment:
+      APP_URL: http://app:3000
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - ./test-results:/zap/wrk:rw
+    networks:
+      - test-network
+    command: >
+      sh -c "
+        sleep 60 &&
+        zap-baseline.py -t http://app:3000 -J security-results.json
+      "
+    user: zap
+
+  # Chaos Engineering Test
+  chaos-test:
+    image: python:3.9-slim
+    environment:
+      APP_URL: http://app:3000
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - ./tests/chaos:/tests:ro
+      - ./test-results:/results
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - test-network
+    command: >
+      sh -c "
+        pip install chaostoolkit chaostoolkit-kubernetes requests &&
+        sleep 90 &&
+        chaos run /tests/chaos-experiment.json --journal-path /results/chaos-results.json
+      "
+
+volumes:
+  postgres_data:
+  redis_data:
+  elasticsearch_data:
+  rabbitmq_data:
+  kafka_data:
+  zookeeper_data:
+  mongodb_data:
+  mysql_data:
+
+networks:
+  test-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# Additional compose files for different test scenarios
+---
+# docker-compose.integration.override.yml
+version: "3.8"
+
+services:
+  app:
+    build:
+      args:
+        BUILD_ENV: test
+        NODE_ENV: test
+    environment:
+      DEBUG: "app:*"
+      LOG_LEVEL: debug
+    volumes:
+      - ./coverage:/app/coverage
+      - ./logs:/app/logs
+
+  # Add test data seeder
+  test-seeder:
+    build:
+      context: .
+      dockerfile: tests/Dockerfile.seeder
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    environment:
+      POSTGRES_URL: postgres://testuser:testpass@postgres:5432/testdb
+      REDIS_URL: redis://redis:6379
+      MONGODB_URL: mongodb://mongodb:27017/testdb
+      MYSQL_URL: mysql://testuser:testpass@mysql:3306/testdb
+    volumes:
+      - ./tests/fixtures/seed-data:/seed-data:ro
+    networks:
+      - test-network
+    command: >
+      sh -c "
+        echo 'Seeding test data...' &&
+        npm run seed:test-data &&
+        echo 'Test data seeding completed'
+      "
+
+  # Test reporting service
+  test-reporter:
+    image: node:18-alpine
+    depends_on:
+      - test-runner
+      - performance-test
+      - security-test
+    volumes:
+      - ./test-results:/results:ro
+      - ./test-reports:/reports
+    networks:
+      - test-network
+    command: >
+      sh -c "
+        npm install -g junit-merge allure-commandline &&
+        echo 'Generating test reports...' &&
+        junit-merge -d /results -o /reports/junit-merged.xml &&
+        allure generate /results/allure-results -o /reports/allure-report --clean &&
+        echo 'Test reports generated'
+      "
+
+# Usage examples:
+# docker-compose -f integration-tests.yml up --build
+# docker-compose -f integration-tests.yml up test-runner
+# docker-compose -f integration-tests.yml up performance-test
+# docker-compose -f integration-tests.yml up security-test
+# docker-compose -f integration-tests.yml -f docker-compose.integration.override.yml up

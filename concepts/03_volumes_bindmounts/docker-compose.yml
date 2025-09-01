@@ -1,0 +1,140 @@
+# File Location: concepts/03_volumes_bindmounts/docker-compose.yml
+# Show named volumes + bind mounts
+
+version: "3.8"
+
+services:
+  # App with named volume for logs
+  app:
+    build: .
+    container_name: logging-app
+    ports:
+      - "5000:5000"
+    volumes:
+      - app-logs:/app/logs # Named volume for persistent logs
+      - ./config:/app/config:ro # Bind mount for config files (read-only)
+    environment:
+      - FLASK_ENV=development
+      - LOG_LEVEL=INFO
+    networks:
+      - app-network
+
+  # Database with named volume
+  database:
+    image: postgres:13-alpine
+    container_name: app-database
+    environment:
+      POSTGRES_DB: appdb
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: secret123
+    volumes:
+      - db-data:/var/lib/postgresql/data # Named volume for database data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro # Bind mount for init script
+    ports:
+      - "5432:5432"
+    networks:
+      - app-network
+
+  # Log aggregator sharing app logs
+  logstash:
+    image: logstash:7.15.2
+    container_name: log-processor
+    volumes:
+      - app-logs:/usr/share/logstash/logs:ro # Shared named volume (read-only)
+      - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+    environment:
+      - "LS_JAVA_OPTS=-Xmx256m -Xms256m"
+    networks:
+      - app-network
+    depends_on:
+      - app
+
+  # File server with bind mount
+  fileserver:
+    image: nginx:alpine
+    container_name: file-server
+    ports:
+      - "8080:80"
+    volumes:
+      - ./html:/usr/share/nginx/html:ro # Bind mount for static files
+      - nginx-cache:/var/cache/nginx # Named volume for cache
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro # Bind mount for config
+    networks:
+      - app-network
+
+  # Temporary storage demo
+  temp-processor:
+    image: alpine:latest
+    container_name: temp-worker
+    command: sh -c "while true; do echo 'Processing...' > /tmp/work/status.txt; sleep 30; done"
+    tmpfs:
+      - /tmp/work:size=100M,noexec,nosuid # tmpfs mount for temporary data
+    volumes:
+      - app-logs:/shared-logs # Access to shared logs
+    networks:
+      - app-network
+
+  # Backup service
+  backup:
+    image: alpine:latest
+    container_name: backup-service
+    command: |
+      sh -c '
+        while true; do
+          echo "Starting backup at $$(date)"
+          tar czf /backups/app-logs-$$(date +%Y%m%d-%H%M%S).tar.gz -C /data .
+          tar czf /backups/db-data-$$(date +%Y%m%d-%H%M%S).tar.gz -C /dbdata .
+          echo "Backup completed at $$(date)"
+          sleep 3600  # Backup every hour
+        done
+      '
+    volumes:
+      - app-logs:/data:ro # App logs (read-only)
+      - db-data:/dbdata:ro # Database data (read-only)
+      - ./backups:/backups # Bind mount for backup storage
+    networks:
+      - app-network
+    depends_on:
+      - app
+      - database
+
+# Named volumes
+volumes:
+  app-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/volumes/app-logs
+
+  db-data:
+    driver: local
+
+  nginx-cache:
+    driver: local
+
+# Network
+networks:
+  app-network:
+    driver: bridge
+# Usage examples:
+#
+# Start services:
+# docker-compose up -d
+#
+# View logs:
+# docker-compose logs -f app
+#
+# Check volumes:
+# docker volume ls
+# docker volume inspect volumes_app-logs
+#
+# Access app logs:
+# docker exec -it logging-app cat /app/logs/app.log
+#
+# Backup manually:
+# docker-compose exec backup sh -c "tar czf /backups/manual-backup.tar.gz -C /data ."
+#
+# Clean up:
+# docker-compose down -v  # Removes named volumes
+# docker-compose down     # Keeps named volumes

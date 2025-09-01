@@ -1,0 +1,13 @@
+Image,Startup Time (ms),Memory Usage (MB),CPU Usage (%),Request Latency (ms),Throughput (req/s),Container Boot Time (ms),Health Check Time (ms)
+Naive Build,3200,245,15.2,45,120,5500,850
+Optimized Build,2100,128,8.7,38,185,3200,420
+Alpine Build,1800,87,6.4,35,220,2100,280
+Distroless Build,1500,72,5.8,32,240,1800,250
+Naive Build (Load Test),3400,280,18.5,52,95,5800,920
+Optimized Build (Load Test),2300,145,11.2,42,165,3500,480
+Alpine Build (Load Test),1950,102,7.8,39,195,2350,320
+Distroless Build (Load Test),1650,85,6.9,36,215,2100,290
+Naive Build (Cold Start),4200,245,25.8,65,85,7200,1200
+Optimized Build (Cold Start),2800,128,18.3,58,140,4800,650
+Alpine Build (Cold Start),2400,87,14.2,48,175,3200,420
+Distroless Build (Cold Start),2100,72,12.1,42,195,2800,380

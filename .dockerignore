@@ -1,0 +1,523 @@
+# Location: ./.dockerignore
+
+# DockVerseHub - Docker Ignore Patterns
+# ======================================
+# This file defines patterns to exclude from Docker build context
+# to optimize build performance and reduce image size
+
+# Version Control Systems
+# ========================
+.git/
+.gitignore
+.gitattributes
+.gitmodules
+.gitkeep
+.hg/
+.svn/
+CVS/
+.bzr/
+.DS_Store
+
+# Documentation and Markdown Files
+# =================================
+README.md
+CHANGELOG.md
+CONTRIBUTING.md
+LICENSE
+*.md
+docs/
+website/
+.github/
+.gitlab/
+
+# Development and Testing Files
+# ==============================
+# Test files and directories
+test/
+tests/
+*_test.go
+*_test.py
+test_*.py
+spec/
+__tests__/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage/
+.nyc_output/
+
+# Development tools configuration
+.editorconfig
+.eslintrc*
+.prettierrc*
+.stylelintrc*
+.babelrc*
+.browserslistrc
+tsconfig.json
+jest.config.js
+webpack.config.js
+rollup.config.js
+vite.config.js
+
+# IDE and Editor Files
+# ====================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.vim/
+.emacs.d/
+.atom/
+*.sublime-*
+.history/
+
+# Operating System Files
+# =======================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+
+# Windows
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+# Build Artifacts and Dependencies
+# =================================
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+.yarn/
+.pnp.*
+.yarn-integrity
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Python environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+pyvenv.cfg
+
+# Java/Maven/Gradle
+target/
+build/
+.gradle/
+*.class
+*.jar
+*.war
+*.ear
+.mvn/wrapper/maven-wrapper.jar
+
+# Go
+vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.sum
+go.work
+
+# Ruby
+.bundle/
+vendor/bundle/
+*.gem
+.rvmrc
+
+# PHP
+vendor/
+composer.lock
+.phpunit.result.cache
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.dll
+*.exe
+*.pdb
+
+# Rust
+target/
+Cargo.lock
+
+# Configuration and Environment Files
+# ====================================
+# Environment variables
+.env*
+.environment
+config.local.*
+*.local
+local.*
+.config/
+
+# Secrets and sensitive data
+secrets/
+.secrets/
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.cert
+*.cer
+*.der
+
+# SSH keys
+id_rsa*
+id_dsa*
+id_ecdsa*
+id_ed25519*
+known_hosts
+authorized_keys
+
+# Docker Related Files
+# ====================
+# Docker files that shouldn't be in build context
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+docker-stack*.yml
+.docker/
+
+# Build cache and temporary files
+.docker-cache/
+.buildkit/
+
+# Container volumes and data
+volumes/
+data/
+logs/
+backups/
+docker-data/
+registry-data/
+
+# Kubernetes and Orchestration
+# =============================
+*.yaml
+*.yml
+k8s/
+kubernetes/
+helm/
+charts/
+manifests/
+
+# Exclude common orchestration files
+docker-compose*.yml
+docker-stack*.yml
+swarm.yml
+.kube/
+kubeconfig*
+
+# CI/CD and Automation
+# ====================
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+.jenkins/
+Jenkinsfile*
+.azure-pipelines/
+buildspec.yml
+.github/
+
+# Build scripts and automation
+Makefile
+makefile
+*.mk
+build.sh
+deploy.sh
+install.sh
+setup.sh
+scripts/
+
+# Monitoring and Logging
+# =======================
+logs/
+*.log
+log/
+monitoring-data/
+metrics/
+traces/
+prometheus-data/
+grafana-data/
+elasticsearch-data/
+
+# Temporary and Cache Files
+# ==========================
+tmp/
+temp/
+cache/
+.cache/
+.tmp/
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.#*
+
+# Backup and Archive Files
+# =========================
+*.bak
+*.backup
+*.old
+*.orig
+*.save
+*.tar
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.zip
+*.rar
+*.7z
+
+# Database Files
+# ==============
+*.sqlite
+*.sqlite3
+*.db
+*.mdb
+*.accdb
+db/
+database/
+postgres-data/
+mysql-data/
+mongodb-data/
+redis-data/
+
+# Media and Asset Files (if not needed in container)
+# ===================================================
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.ico
+*.svg
+*.webp
+*.mp4
+*.avi
+*.mov
+*.wmv
+*.flv
+*.webm
+*.mp3
+*.wav
+*.ogg
+*.flac
+
+# Large Binary Files
+# ==================
+*.bin
+*.exe
+*.dmg
+*.iso
+*.img
+
+# Development Utilities and Tools
+# ================================
+# Linting and formatting
+.eslintrc*
+.prettierrc*
+.flake8
+.pylintrc
+.mypy.ini
+pyproject.toml
+setup.cfg
+tox.ini
+
+# Package manager files
+package-lock.json
+yarn.lock
+Pipfile*
+poetry.lock
+requirements-dev.txt
+dev-requirements.txt
+
+# Local development overrides
+local/
+localhost/
+development/
+dev/
+
+# Performance and Profiling
+# ==========================
+*.prof
+*.pprof
+profile.out
+cpu.prof
+mem.prof
+profile.cov
+benchmark-results/
+performance-reports/
+
+# Security Scanning Results
+# ==========================
+security-reports/
+vulnerability-scans/
+audit-results/
+*.sarif
+
+# Terraform and Infrastructure
+# =============================
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars*
+*.tfplan
+crash.log
+
+# Ansible
+# =======
+*.retry
+.vault_pass.txt
+inventory/group_vars/*/vault.yml
+
+# Vagrant
+# =======
+.vagrant/
+*.box
+
+# Container Orchestration Data
+# =============================
+# Persistent volume data
+pv-data/
+persistent-volumes/
+storage-data/
+
+# Service mesh configurations
+istio/
+linkerd/
+consul/
+
+# Project Specific Exclusions
+# ============================
+# DockVerseHub specific patterns
+utilities/outputs/
+utilities/reports/
+benchmarks/results/
+labs/*/temp/
+labs/*/tmp/
+labs/*/logs/
+labs/*/data/
+interactive/results/
+examples/*/logs/
+examples/*/data/
+
+# Generated files
+generated/
+auto-generated/
+.generated/
+
+# Local experimentation
+playground/
+sandbox/
+experiments/
+scratchpad/
+draft/
+
+# Build optimization files
+.build-cache/
+.compile-cache/
+.link-cache/
+
+# Container runtime files
+*.pid
+.container-*
+runtime-*
+
+# SSL/TLS related files
+ssl/
+tls/
+certs/
+certificates/
+
+# Helm and package manager caches
+.helm/
+.pip/
+.npm/
+.yarn/
+.cargo/
+.gradle/cache/
+
+# IDE project files
+.project
+.classpath
+.settings/
+*.iml
+*.ipr
+*.iws
+
+# Local configuration overrides
+override.*
+*.override.*
+local.*
+*.local.*
+
+# Exclude everything in certain directories
+coverage/
+reports/
+output/
+out/
+
+# Common temporary patterns
+**/temp/**
+**/tmp/**
+**/.cache/**
+**/.temp/**

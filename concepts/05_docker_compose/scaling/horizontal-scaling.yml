@@ -1,0 +1,99 @@
+# File Location: concepts/05_docker_compose/scaling/horizontal-scaling.yml
+
+version: "3.8"
+
+services:
+  # Load balancer
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx-lb.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - web
+    networks:
+      - frontend
+
+  # Scalable web application
+  web:
+    image: node:16-alpine
+    command: |
+      sh -c '
+        cat > server.js << EOF
+        const express = require("express");
+        const app = express();
+        
+        app.get("/", (req, res) => {
+          res.json({
+            message: "Hello from " + process.env.HOSTNAME,
+            instance: process.env.HOSTNAME,
+            timestamp: new Date().toISOString()
+          });
+        });
+        
+        app.get("/health", (req, res) => {
+          res.json({ status: "healthy", instance: process.env.HOSTNAME });
+        });
+        
+        app.listen(3000, () => console.log("Server running on port 3000"));
+        EOF
+        npm init -y && npm install express
+        node server.js
+      '
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      - database
+      - redis
+
+  # Database (single instance)
+  database:
+    image: postgres:13-alpine
+    environment:
+      POSTGRES_DB: scalingdemo
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - backend
+
+  # Redis (single instance)
+  redis:
+    image: redis:alpine
+    networks:
+      - backend
+
+  # Background workers (scalable)
+  worker:
+    image: node:16-alpine
+    command: |
+      sh -c '
+        cat > worker.js << EOF
+        console.log("Worker started: " + process.env.HOSTNAME);
+        setInterval(() => {
+          console.log("Processing job on " + process.env.HOSTNAME + " at " + new Date());
+        }, 5000);
+        EOF
+        node worker.js
+      '
+    networks:
+      - backend
+    depends_on:
+      - database
+      - redis
+
+volumes:
+  db-data:
+
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+# Scaling commands:
+# docker-compose up --scale web=3
+# docker-compose up --scale worker=5
+# docker-compose up --scale web=3 --scale worker=2

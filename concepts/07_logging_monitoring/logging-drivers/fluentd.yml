@@ -1,0 +1,223 @@
+# 07_logging_monitoring/logging-drivers/fluentd.yml
+
+version: '3.8'
+
+services:
+  # Fluentd log collector
+  fluentd:
+    image: fluent/fluentd:v1.16-debian-1
+    container_name: fluentd-collector
+    ports:
+      - "24224:24224"     # Fluentd forward protocol
+      - "24224:24224/udp" # UDP support
+    volumes:
+      - ./fluentd-config:/fluentd/etc:ro
+      - fluentd_logs:/var/log/fluentd
+    environment:
+      - FLUENTD_CONF=fluent.conf
+    command: |
+      sh -c 'mkdir -p /fluentd/etc &&
+             cat > /fluentd/etc/fluent.conf << "EOF"
+<source>
+  @type forward
+  port 24224
+  bind 0.0.0.0
+</source>
+
+# Parse Docker container logs
+<filter docker.**>
+  @type parser
+  format json
+  key_name log
+  reserve_data true
+</filter>
+
+# Add hostname and timestamp
+<filter docker.**>
+  @type record_transformer
+  <record>
+    hostname "#{Socket.gethostname}"
+    timestamp ${time}
+    source fluentd
+  </record>
+</filter>
+
+# Output to file for demonstration
+<match docker.**>
+  @type file
+  path /var/log/fluentd/docker-logs
+  append true
+  time_slice_format %Y%m%d%H
+  <format>
+    @type json
+  </format>
+  <buffer time>
+    timekey 3600
+    timekey_wait 1m
+    flush_mode interval
+    flush_interval 10s
+  </buffer>
+</match>
+
+# Output to stdout for debugging
+<match **>
+  @type stdout
+  <format>
+    @type json
+  </format>
+</match>
+EOF
+             fluentd -c /fluentd/etc/fluent.conf -v'
+
+  # Web application using fluentd logging driver
+  web-app:
+    image: nginx:alpine
+    container_name: fluentd-web-demo
+    ports:
+      - "8092:80"
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: "localhost:24224"
+        tag: "docker.web-app"
+        fluentd-async-connect: "true"
+        fluentd-retry-wait: "1s"
+        fluentd-max-retries: "30"
+    depends_on:
+      - fluentd
+
+  # Python application generating structured logs
+  python-app:
+    image: python:3.11-alpine
+    container_name: fluentd-python-demo
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: "fluentd:24224"
+        tag: "docker.python-app"
+        fluentd-sub-second-precision: "true"
+    command: |
+      sh -c 'pip install --no-cache-dir requests fluent-logger &&
+             cat > /app.py << "EOF"
+import time
+import json
+import random
+import logging
+from datetime import datetime
+from fluent import sender
+from fluent import event
+
+# Configure fluent logger
+fluent_sender = sender.FluentSender("app", host="fluentd", port=24224)
+
+def generate_application_logs():
+    """Generate structured application logs"""
+    while True:
+        # Generate different types of events
+        events = [
+            {
+                "event": "user_registration",
+                "user_id": random.randint(1000, 9999),
+                "email": f"user{random.randint(1, 100)}@example.com",
+                "registration_source": random.choice(["web", "mobile", "api"]),
+                "success": True
+            },
+            {
+                "event": "api_request", 
+                "method": random.choice(["GET", "POST", "PUT", "DELETE"]),
+                "endpoint": random.choice(["/api/users", "/api/orders", "/api/products"]),
+                "status_code": random.choice([200, 201, 400, 404, 500]),
+                "response_time": random.randint(10, 2000),
+                "user_agent": "Mozilla/5.0 (compatible; API-Client/1.0)"
+            },
+            {
+                "event": "database_operation",
+                "operation": random.choice(["SELECT", "INSERT", "UPDATE", "DELETE"]),
+                "table": random.choice(["users", "orders", "products", "sessions"]),
+                "duration": random.randint(5, 500),
+                "rows_affected": random.randint(0, 100)
+            },
+            {
+                "event": "error_occurred",
+                "error_type": random.choice(["ValidationError", "DatabaseError", "NetworkError"]),
+                "error_code": random.choice([400, 404, 500, 503]),
+                "error_message": "Sample error message for demonstration",
+                "stack_trace": "Traceback (most recent call last)..."
+            }
+        ]
+        
+        event_data = random.choice(events)
+        event_data.update({
+            "timestamp": datetime.utcnow().isoformat(),
+            "hostname": "python-app-container",
+            "service": "demo-service",
+            "version": "1.0.0",
+            "environment": "development"
+        })
+        
+        # Send to fluentd
+        fluent_sender.emit("event", event_data)
+        
+        # Also log to stdout (will be captured by Docker logging driver)
+        print(json.dumps(event_data))
+        
+        time.sleep(random.randint(2, 6))
+
+if __name__ == "__main__":
+    print("Starting Python application with Fluentd logging...")
+    generate_application_logs()
+EOF
+             python /app.py'
+    depends_on:
+      - fluentd
+
+  # Log viewer to demonstrate collected logs
+  log-viewer:
+    image: alpine:latest
+    container_name: fluentd-viewer
+    volumes:
+      - fluentd_logs:/var/log/fluentd:ro
+    command: |
+      sh -c 'echo "=== Fluentd Logging Driver Demo ===" &&
+             echo "Waiting for logs to be collected..." &&
+             sleep 15 &&
+             echo "=== Fluentd log files ===" &&
+             find /var/log/fluentd -name "*.log" -type f &&
+             echo "=== Sample collected logs ===" &&
+             for logfile in /var/log/fluentd/*.log; do
+               if [ -f "$$logfile" ]; then
+                 echo "=== File: $$logfile ===" &&
+                 tail -5 "$$logfile" | head -3
+               fi
+             done &&
+             echo "=== Live log monitoring (press Ctrl+C to stop) ===" &&
+             tail -f /var/log/fluentd/*.log 2>/dev/null || echo "No logs available yet, waiting..." &&
+             sleep 5 &&
+             tail -f /var/log/fluentd/*.log'
+    depends_on:
+      - fluentd
+      - web-app
+      - python-app
+
+  # Elasticsearch for log storage (optional)
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: fluentd-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    profiles:
+      - with-elasticsearch
+
+volumes:
+  fluentd_logs:
+  es_data:
+
+networks:
+  default:
+    driver: bridge

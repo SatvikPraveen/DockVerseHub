@@ -1,0 +1,565 @@
+# 07_logging_monitoring/alerting/alertmanager-config.yml
+
+# Comprehensive Alertmanager Configuration
+# Advanced routing, grouping, inhibition, and notification channels
+
+global:
+  # SMTP server configuration
+  smtp_smarthost: "smtp.gmail.com:587"
+  smtp_from: "alerts@company.com"
+  smtp_auth_username: "alerts@company.com"
+  smtp_auth_password: "${SMTP_PASSWORD}"
+  smtp_require_tls: true
+
+  # Slack API URL
+  slack_api_url: "${SLACK_API_URL}"
+
+  # PagerDuty integration key
+  pagerduty_url: "https://events.pagerduty.com/v2/enqueue"
+
+  # Webhook defaults
+  http_config:
+    follow_redirects: true
+    enable_http2: true
+
+  # Resolve timeout
+  resolve_timeout: 5m
+
+# Define reusable templates
+templates:
+  - "/etc/alertmanager/templates/*.tmpl"
+
+# Route tree for alert routing
+route:
+  group_by: ["alertname", "cluster", "service"]
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 1h
+  receiver: "web.hook"
+
+  routes:
+    # Critical alerts - immediate notification
+    - match:
+        severity: critical
+      group_wait: 0s
+      group_interval: 5m
+      repeat_interval: 15m
+      receiver: "critical-alerts"
+      routes:
+        # Database critical alerts
+        - match:
+            service: database
+          receiver: "database-critical"
+          continue: true
+        # Application critical alerts
+        - match:
+            service: application
+          receiver: "app-critical"
+          continue: true
+        # Infrastructure critical alerts
+        - match:
+            category: infrastructure
+          receiver: "infra-critical"
+          continue: true
+
+    # Warning alerts - grouped notifications
+    - match:
+        severity: warning
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 2h
+      receiver: "warning-alerts"
+      routes:
+        # Performance warnings
+        - match:
+            category: performance
+          receiver: "performance-team"
+        # Security warnings
+        - match:
+            category: security
+          receiver: "security-team"
+        # Capacity warnings
+        - match:
+            category: capacity
+          receiver: "capacity-team"
+
+    # Info alerts - daily digest
+    - match:
+        severity: info
+      group_wait: 5m
+      group_interval: 1h
+      repeat_interval: 24h
+      receiver: "info-digest"
+
+    # Kubernetes alerts
+    - match:
+        source: kubernetes
+      group_by: ["alertname", "namespace", "pod"]
+      group_wait: 30s
+      receiver: "kubernetes-alerts"
+      routes:
+        # Pod alerts
+        - match:
+            alertname: "KubePodCrashLooping"
+          receiver: "pod-alerts"
+        - match:
+            alertname: "KubePodNotReady"
+          receiver: "pod-alerts"
+        # Node alerts
+        - match_re:
+            alertname: "KubeNode.*"
+          receiver: "node-alerts"
+        # Storage alerts
+        - match_re:
+            alertname: "KubePersistent.*"
+          receiver: "storage-alerts"
+
+    # Application-specific routes
+    - match:
+        app: frontend
+      receiver: "frontend-team"
+      routes:
+        - match:
+            severity: critical
+          receiver: "frontend-critical"
+
+    - match:
+        app: backend
+      receiver: "backend-team"
+      routes:
+        - match:
+            severity: critical
+          receiver: "backend-critical"
+
+    - match:
+        app: database
+      receiver: "database-team"
+      routes:
+        - match:
+            severity: critical
+          receiver: "database-critical"
+
+    # Environment-specific routes
+    - match:
+        environment: production
+      receiver: "production-alerts"
+      routes:
+        - match:
+            severity: critical
+          receiver: "production-critical"
+          continue: true
+
+    - match:
+        environment: staging
+      receiver: "staging-alerts"
+
+    - match:
+        environment: development
+      receiver: "dev-alerts"
+
+    # Time-based routing (business hours vs after hours)
+    - match:
+        severity: critical
+      active_time_intervals:
+        - business-hours
+      receiver: "business-hours-critical"
+
+    - match:
+        severity: critical
+      active_time_intervals:
+        - after-hours
+      receiver: "after-hours-critical"
+
+    # Customer impact alerts
+    - match:
+        impact: customer-facing
+      receiver: "customer-impact"
+      routes:
+        - match:
+            severity: critical
+          receiver: "customer-critical"
+          continue: true
+
+    # Maintenance window suppression
+    - match:
+        alertname: "MaintenanceMode"
+      receiver: "null"
+
+# Time intervals for different notification schedules
+time_intervals:
+  - name: business-hours
+    time_intervals:
+      - times:
+          - start_time: "09:00"
+            end_time: "17:00"
+        weekdays: ["monday:friday"]
+        location: "America/New_York"
+
+  - name: after-hours
+    time_intervals:
+      - times:
+          - start_time: "17:01"
+            end_time: "08:59"
+        weekdays: ["monday:friday"]
+        location: "America/New_York"
+      - times:
+          - start_time: "00:00"
+            end_time: "23:59"
+        weekdays: ["saturday", "sunday"]
+        location: "America/New_York"
+
+  - name: weekends-only
+    time_intervals:
+      - times:
+          - start_time: "00:00"
+            end_time: "23:59"
+        weekdays: ["saturday", "sunday"]
+
+# Inhibition rules to suppress redundant alerts
+inhibit_rules:
+  # Suppress warning alerts when critical alerts are firing
+  - source_matchers:
+      - severity=critical
+    target_matchers:
+      - severity=warning
+    equal: ["alertname", "cluster", "service"]
+
+  # Suppress node alerts when entire cluster is down
+  - source_matchers:
+      - alertname=ClusterDown
+    target_matchers:
+      - alertname=~"KubeNode.*"
+    equal: ["cluster"]
+
+  # Suppress pod alerts when node is down
+  - source_matchers:
+      - alertname=KubeNodeNotReady
+    target_matchers:
+      - alertname=KubePodNotReady
+    equal: ["instance"]
+
+  # Suppress application alerts during maintenance
+  - source_matchers:
+      - alertname=MaintenanceMode
+    target_matchers:
+      - severity=~"warning|critical"
+    equal: ["service"]
+
+  # Suppress disk space alerts when node is down
+  - source_matchers:
+      - alertname=KubeNodeUnreachable
+    target_matchers:
+      - alertname=NodeFilesystemSpaceFillingUp
+    equal: ["instance"]
+
+# Notification receivers
+receivers:
+  # Default webhook receiver
+  - name: "web.hook"
+    webhook_configs:
+      - url: "http://webhook-service:5001/alerts"
+        send_resolved: true
+        http_config:
+          bearer_token: "${WEBHOOK_TOKEN}"
+        max_alerts: 10
+
+  # Null receiver for suppressed alerts
+  - name: "null"
+
+  # Critical alert receivers
+  - name: "critical-alerts"
+    slack_configs:
+      - api_url: "${SLACK_API_URL}"
+        channel: "#critical-alerts"
+        title: "🚨 Critical Alert"
+        text: '{{ template "slack.default.text" . }}'
+        color: "danger"
+        send_resolved: true
+        actions:
+          - type: button
+            text: "View Dashboard"
+            url: "https://grafana.company.com/d/alerts"
+          - type: button
+            text: "Runbook"
+            url: "https://runbooks.company.com/{{ .GroupLabels.alertname }}"
+
+    pagerduty_configs:
+      - routing_key: "${PAGERDUTY_INTEGRATION_KEY}"
+        description: '{{ template "pagerduty.default.description" . }}'
+        severity: "critical"
+        client: "Alertmanager"
+        client_url: "https://alertmanager.company.com"
+        links:
+          - href: "https://grafana.company.com/d/alerts"
+            text: "View Dashboard"
+        images:
+          - src: "https://grafana.company.com/render/d-solo/alerts"
+            alt: "Alert Graph"
+
+    email_configs:
+      - to: "oncall@company.com"
+        subject: "🚨 Critical Alert: {{ .GroupLabels.alertname }}"
+        body: '{{ template "email.default.html" . }}'
+        html: '{{ template "email.default.html" . }}'
+        headers:
+          Priority: "high"
+          X-Alert-Severity: "critical"
+
+  # Warning alert receiver
+  - name: "warning-alerts"
+    slack_configs:
+      - api_url: "${SLACK_API_URL}"
+        channel: "#alerts"
+        title: "⚠️ Warning Alert"
+        text: '{{ template "slack.default.text" . }}'
+        color: "warning"
+        send_resolved: true
+
+  # Info digest receiver
+  - name: "info-digest"
+    slack_configs:
+      - api_url: "${SLACK_API_URL}"
+        channel: "#monitoring-digest"
+        title: "ℹ️ Daily Alert Digest"
+        text: '{{ template "slack.digest.text" . }}'
+        color: "good"
+
+  # Team-specific receivers
+  - name: "database-team"
+    slack_configs:
+      - api_url: "${SLACK_API_URL}"
+        channel: "#database-team"
+        title: "🗄️ Database Alert"
+        text: '{{ template "slack.database.text" . }}'
+
+    email_configs:
+      - to: "database-team@company.com"
+        subject: "Database Alert: {{ .GroupLabels.alertname }}"
+        body: '{{ template "email.database.html" . }}'
+
+  - name: "database-critical"
+    slack_configs:
+      - api_url: "${SLACK_API_URL}"
+        channel: "#database-critical"
+        title: "🚨 Critical Database Alert"
+        text: '{{ template "slack.database.critical.text" . }}'
+        color: "danger"
+
+    pagerduty_configs:
+      - routing_key: "${PAGERDUTY_DATABASE_KEY}"
+        description: "Critical Database Alert: {{ .GroupLabels.alertname }}"
+        severity: "critical"
+
+    email_configs:
+      - to: "database-oncall@company.com"
+        subject: "🚨 CRITICAL Database Alert: {{ .GroupLabels.alertname }}"
+
+  - name: "frontend-team"
+    slack_configs:
+      - api_url: "${SLACK_API_URL}"
+        channel: "#frontend-team"
+        title: "🌐 Frontend Alert"
+        text: '{{ template "slack.frontend.text" . }}'
+
+  - name: "backend-team"
+    slack_configs:
+      - api_url: "${SLACK_API_URL}"
+        channel: "#backend-team"
+        title: "⚙️ Backend Alert"
+        text: '{{ template "slack.backend.text" . }}'
+
+  # Kubernetes-specific receivers
+  - name: "kubernetes-alerts"
+    slack_configs:
+      - api_url: "${SLACK_API_URL}"
+        channel: "#kubernetes"
+        title: "☸️ Kubernetes Alert"
+        text: '{{ template "slack.kubernetes.text" . }}'
+
+  - name: "pod-alerts"
+    slack_configs:
+      - api_url: "${SLACK_API_URL}"
+        channel: "#kubernetes-pods"
+        title: "🐳 Pod Alert"
+        text: '{{ template "slack.pod.text" . }}'
+
+  - name: "node-alerts"
+    slack_configs:
+      - api_url: "${SLACK_API_URL}"
+        channel: "#kubernetes-nodes"
+        title: "🖥️ Node Alert"
+        text: '{{ template "slack.node.text" . }}'
+
+    pagerduty_configs:
+      - routing_key: "${PAGERDUTY_INFRASTRUCTURE_KEY}"
+        description: "Kubernetes Node Alert: {{ .GroupLabels.alertname }}"
+
+  # Environment-specific receivers
+  - name: "production-alerts"
+    slack_configs:
+      - api_url: "${SLACK_API_URL}"
+        channel: "#production-alerts"
+        title: "🏭 Production Alert"
+        text: '{{ template "slack.production.text" . }}'
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+
+  - name: "production-critical"
+    slack_configs:
+      - api_url: "${SLACK_API_URL}"
+        channel: "#production-critical"
+        title: "🚨 CRITICAL Production Alert"
+        text: '{{ template "slack.production.critical.text" . }}'
+        color: "danger"
+
+    pagerduty_configs:
+      - routing_key: "${PAGERDUTY_PRODUCTION_KEY}"
+        description: "CRITICAL Production Alert: {{ .GroupLabels.alertname }}"
+        severity: "critical"
+
+    email_configs:
+      - to: "production-oncall@company.com"
+        cc: "management@company.com"
+        subject: "🚨 CRITICAL Production Alert: {{ .GroupLabels.alertname }}"
+
+  - name: "staging-alerts"
+    slack_configs:
+      - api_url: "${SLACK_API_URL}"
+        channel: "#staging-alerts"
+        title: "🧪 Staging Alert"
+        text: '{{ template "slack.staging.text" . }}'
+
+  # Customer impact receiver
+  - name: "customer-impact"
+    slack_configs:
+      - api_url: "${SLACK_API_URL}"
+        channel: "#customer-impact"
+        title: "👥 Customer Impact Alert"
+        text: '{{ template "slack.customer.text" . }}'
+        color: "danger"
+
+    webhook_configs:
+      - url: "https://status-page-api.company.com/incidents"
+        send_resolved: true
+        http_config:
+          bearer_token: "${STATUS_PAGE_TOKEN}"
+
+  # Business hours vs after hours receivers
+  - name: "business-hours-critical"
+    slack_configs:
+      - api_url: "${SLACK_API_URL}"
+        channel: "#alerts-business-hours"
+        title: "🚨 Critical Alert (Business Hours)"
+        text: '{{ template "slack.business.critical.text" . }}'
+
+    email_configs:
+      - to: "team-leads@company.com"
+        subject: "Critical Alert (Business Hours): {{ .GroupLabels.alertname }}"
+
+  - name: "after-hours-critical"
+    pagerduty_configs:
+      - routing_key: "${PAGERDUTY_AFTERHOURS_KEY}"
+        description: "After Hours Critical: {{ .GroupLabels.alertname }}"
+        severity: "critical"
+
+    slack_configs:
+      - api_url: "${SLACK_API_URL}"
+        channel: "#alerts-after-hours"
+        title: "🌙 Critical Alert (After Hours)"
+        text: '{{ template "slack.afterhours.critical.text" . }}'
+
+  # Specialized team receivers
+  - name: "security-team"
+    slack_configs:
+      - api_url: "${SLACK_API_URL}"
+        channel: "#security-alerts"
+        title: "🔒 Security Alert"
+        text: '{{ template "slack.security.text" . }}'
+        color: "warning"
+
+    email_configs:
+      - to: "security@company.com"
+        subject: "Security Alert: {{ .GroupLabels.alertname }}"
+
+  - name: "performance-team"
+    slack_configs:
+      - api_url: "${SLACK_API_URL}"
+        channel: "#performance"
+        title: "⚡ Performance Alert"
+        text: '{{ template "slack.performance.text" . }}'
+
+  - name: "capacity-team"
+    slack_configs:
+      - api_url: "${SLACK_API_URL}"
+        channel: "#capacity-planning"
+        title: "📊 Capacity Alert"
+        text: '{{ template "slack.capacity.text" . }}'
+
+  # Microsoft Teams receiver
+  - name: "teams-alerts"
+    webhook_configs:
+      - url: "${TEAMS_WEBHOOK_URL}"
+        send_resolved: true
+        title: "Alert: {{ .GroupLabels.alertname }}"
+        text: '{{ template "teams.default.text" . }}'
+
+  # Discord receiver
+  - name: "discord-alerts"
+    webhook_configs:
+      - url: "${DISCORD_WEBHOOK_URL}"
+        send_resolved: true
+        title: "Alert Notification"
+        text: '{{ template "discord.default.text" . }}'
+
+  # Advanced webhook with custom payload
+  - name: "custom-webhook"
+    webhook_configs:
+      - url: "https://api.company.com/alerts/webhook"
+        send_resolved: true
+        http_config:
+          bearer_token: "${CUSTOM_WEBHOOK_TOKEN}"
+        max_alerts: 20
+        title: '{{ template "webhook.title" . }}'
+        text: '{{ template "webhook.body" . }}'
+
+  # SMS receiver (via webhook to SMS service)
+  - name: "sms-alerts"
+    webhook_configs:
+      - url: "https://sms-gateway.company.com/send"
+        send_resolved: false
+        http_config:
+          basic_auth:
+            username: "${SMS_USERNAME}"
+            password: "${SMS_PASSWORD}"
+        title: "ALERT"
+        text: '{{ template "sms.text" . }}'
+# Example template files to create in /etc/alertmanager/templates/
+# File: /etc/alertmanager/templates/default.tmpl
+# {{ define "slack.default.text" }}
+# {{ range .Alerts }}
+# *Alert:* {{ .Annotations.summary }}
+# *Description:* {{ .Annotations.description }}
+# *Severity:* {{ .Labels.severity }}
+# *Service:* {{ .Labels.service }}
+# {{ if .Labels.runbook_url }}*Runbook:* {{ .Labels.runbook_url }}{{ end }}
+# {{ end }}
+# {{ end }}
+
+# File: /etc/alertmanager/templates/email.tmpl
+# {{ define "email.default.html" }}
+# <html>
+# <body>
+# <h2>Alert Summary</h2>
+# <table border="1">
+# <tr><th>Alert</th><th>Status</th><th>Severity</th><th>Service</th></tr>
+# {{ range .Alerts }}
+# <tr>
+# <td>{{ .Annotations.summary }}</td>
+# <td>{{ .Status }}</td>
+# <td>{{ .Labels.severity }}</td>
+# <td>{{ .Labels.service }}</td>
+# </tr>
+# {{ end }}
+# </table>
+# </body>
+# </html>
+# {{ end }}

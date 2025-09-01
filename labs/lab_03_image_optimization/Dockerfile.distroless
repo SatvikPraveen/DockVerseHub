@@ -1,0 +1,44 @@
+# File Location: labs/lab_03_image_optimization/Dockerfile.distroless
+
+# Maximum security with Google's distroless images
+FROM python:3.11-slim as builder
+
+# Install dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy and install Python dependencies
+COPY requirements.txt .
+RUN pip install --target /app/dependencies -r requirements.txt
+
+# Copy application
+COPY app.py .
+
+# Distroless production stage - NO SHELL, NO PACKAGE MANAGER
+FROM gcr.io/distroless/python3-debian11:nonroot
+
+# Copy Python dependencies
+COPY --from=builder /app/dependencies /usr/local/lib/python3.11/site-packages
+
+# Copy application
+COPY --from=builder /app/app.py /app/
+
+# Set Python path
+ENV PYTHONPATH=/usr/local/lib/python3.11/site-packages
+
+WORKDIR /app
+
+EXPOSE 5000
+
+# No shell available for health check, but distroless is ultra-secure
+# USER nonroot (already set by base image)
+
+# Labels for tracking
+LABEL maintainer="DockVerseHub" \
+      version="1.0.0" \
+      description="Distroless Python application - maximum security"
+
+CMD ["app.py"]

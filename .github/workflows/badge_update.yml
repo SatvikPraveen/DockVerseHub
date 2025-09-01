@@ -1,0 +1,279 @@
+# File: .github/workflows/badge_update.yml
+name: Update README Badges
+
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    # Update badges daily at 6 AM UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  update-badges:
+    name: Update Repository Badges
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install requests pyyaml
+
+      - name: Collect repository metrics
+        run: |
+          echo "📊 Collecting repository metrics..."
+          
+          # Create metrics collection script
+          cat > collect_metrics.py << 'EOF'
+          import os
+          import requests
+          import json
+          import subprocess
+          from datetime import datetime
+
+          def get_repo_info():
+              """Get repository information from GitHub API"""
+              token = os.environ.get('GITHUB_TOKEN')
+              repo = os.environ.get('GITHUB_REPOSITORY')
+              
+              headers = {'Authorization': f'token {token}'} if token else {}
+              
+              try:
+                  response = requests.get(f'https://api.github.com/repos/{repo}', headers=headers)
+                  return response.json() if response.status_code == 200 else {}
+              except:
+                  return {}
+
+          def count_files():
+              """Count various file types in repository"""
+              try:
+                  dockerfile_count = subprocess.check_output(
+                      ["find", ".", "-name", "Dockerfile*", "-type", "f", "!", "-path", "./.git/*"],
+                      text=True
+                  ).strip().count('\n') + 1 if subprocess.check_output(
+                      ["find", ".", "-name", "Dockerfile*", "-type", "f", "!", "-path", "./.git/*"],
+                      text=True
+                  ).strip() else 0
+
+                  compose_count = subprocess.check_output(
+                      ["find", ".", "-name", "docker-compose*.yml", "-type", "f", "!", "-path", "./.git/*"],
+                      text=True
+                  ).strip().count('\n') + 1 if subprocess.check_output(
+                      ["find", ".", "-name", "docker-compose*.yml", "-type", "f", "!", "-path", "./.git/*"],
+                      text=True
+                  ).strip() else 0
+
+                  labs_count = subprocess.check_output(
+                      ["find", "./labs", "-maxdepth", "1", "-type", "d"],
+                      text=True
+                  ).strip().count('\n') if os.path.exists('./labs') else 0
+
+                  concepts_count = subprocess.check_output(
+                      ["find", "./concepts", "-maxdepth", "1", "-type", "d"],
+                      text=True
+                  ).strip().count('\n') if os.path.exists('./concepts') else 0
+
+                  return {
+                      'dockerfiles': max(0, dockerfile_count),
+                      'compose_files': max(0, compose_count),
+                      'labs': max(0, labs_count - 1),  # Subtract 1 for the labs directory itself
+                      'concepts': max(0, concepts_count - 1)  # Subtract 1 for the concepts directory itself
+                  }
+              except:
+                  return {'dockerfiles': 0, 'compose_files': 0, 'labs': 0, 'concepts': 0}
+
+          def main():
+              print("Collecting repository metrics...")
+              
+              repo_info = get_repo_info()
+              file_counts = count_files()
+              
+              metrics = {
+                  'stars': repo_info.get('stargazers_count', 0),
+                  'forks': repo_info.get('forks_count', 0),
+                  'issues': repo_info.get('open_issues_count', 0),
+                  'language': repo_info.get('language', 'Docker'),
+                  'size': repo_info.get('size', 0),
+                  'last_updated': datetime.now().strftime('%Y-%m-%d'),
+                  **file_counts
+              }
+              
+              # Save metrics to file
+              with open('repo_metrics.json', 'w') as f:
+                  json.dump(metrics, f, indent=2)
+              
+              print(f"Metrics collected: {metrics}")
+
+          if __name__ == "__main__":
+              main()
+          EOF
+          
+          python collect_metrics.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Generate badge URLs
+        run: |
+          echo "🏷️ Generating badge URLs..."
+          
+          # Read metrics
+          metrics=$(cat repo_metrics.json)
+          
+          # Create badge generation script
+          cat > generate_badges.py << 'EOF'
+          import json
+          import urllib.parse
+
+          def generate_badge_url(label, message, color="blue", style="flat"):
+              """Generate shields.io badge URL"""
+              base_url = "https://img.shields.io/badge"
+              encoded_label = urllib.parse.quote(label)
+              encoded_message = urllib.parse.quote(str(message))
+              return f"{base_url}/{encoded_label}-{encoded_message}-{color}?style={style}"
+
+          def main():
+              with open('repo_metrics.json', 'r') as f:
+                  metrics = json.load(f)
+              
+              badges = {
+                  'dockerfiles': generate_badge_url('Dockerfiles', metrics['dockerfiles'], 'blue'),
+                  'compose_files': generate_badge_url('Compose Files', metrics['compose_files'], 'green'),
+                  'labs': generate_badge_url('Labs', metrics['labs'], 'orange'),
+                  'concepts': generate_badge_url('Concepts', metrics['concepts'], 'purple'),
+                  'stars': generate_badge_url('Stars', metrics['stars'], 'yellow'),
+                  'forks': generate_badge_url('Forks', metrics['forks'], 'lightgrey'),
+                  'issues': generate_badge_url('Issues', metrics['issues'], 'red' if metrics['issues'] > 10 else 'green'),
+                  'last_updated': generate_badge_url('Last Updated', metrics['last_updated'], 'brightgreen'),
+                  'docker': 'https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white',
+                  'compose': 'https://img.shields.io/badge/Docker_Compose-2496ED?style=flat&logo=docker&logoColor=white',
+                  'license': 'https://img.shields.io/badge/License-MIT-green.svg',
+                  'contributions': 'https://img.shields.io/badge/Contributions-Welcome-brightgreen.svg'
+              }
+              
+              # Save badges to file
+              with open('badges.json', 'w') as f:
+                  json.dump(badges, f, indent=2)
+              
+              print("Badge URLs generated")
+
+          if __name__ == "__main__":
+              main()
+          EOF
+          
+          python generate_badges.py
+
+      - name: Update README badges
+        run: |
+          echo "📝 Updating README badges..."
+          
+          # Create README updater script
+          cat > update_readme.py << 'EOF'
+          import json
+          import re
+
+          def update_readme_badges():
+              """Update badges in README.md"""
+              try:
+                  with open('badges.json', 'r') as f:
+                      badges = json.load(f)
+                  
+                  with open('README.md', 'r') as f:
+                      content = f.read()
+                  
+                  # Define badge section
+                  badge_section = f"""<!-- BADGES START -->
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white)
+![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat&logo=docker&logoColor=white)
+![Dockerfiles]({badges['dockerfiles']})
+![Compose Files]({badges['compose_files']})
+![Labs]({badges['labs']})
+![Concepts]({badges['concepts']})
+![Stars]({badges['stars']})
+![Forks]({badges['forks']})
+![Issues]({badges['issues']})
+![Last Updated]({badges['last_updated']})
+![License](https://img.shields.io/badge/License-MIT-green.svg)
+![Contributions Welcome](https://img.shields.io/badge/Contributions-Welcome-brightgreen.svg)
+<!-- BADGES END -->"""
+                  
+                  # Update or add badge section
+                  if '<!-- BADGES START -->' in content:
+                      pattern = r'<!-- BADGES START -->.*?<!-- BADGES END -->'
+                      content = re.sub(pattern, badge_section, content, flags=re.DOTALL)
+                  else:
+                      # Add badges after the title
+                      lines = content.split('\n')
+                      if lines and lines[0].startswith('#'):
+                          lines.insert(2, badge_section)
+                          content = '\n'.join(lines)
+                  
+                  with open('README.md', 'w') as f:
+                      f.write(content)
+                  
+                  print("README badges updated successfully")
+                  return True
+              except Exception as e:
+                  print(f"Error updating README: {e}")
+                  return False
+
+          if __name__ == "__main__":
+              update_readme_badges()
+          EOF
+          
+          python update_readme.py
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet README.md; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No changes to README badges"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "README badges updated"
+          fi
+
+      - name: Commit and push changes
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add README.md
+          git commit -m "🏷️ Update README badges [skip ci]" || exit 0
+          git push
+
+      - name: Generate badge report
+        run: |
+          echo "# 🏷️ Badge Update Report" > badge-report.md
+          echo "Generated: $(date)" >> badge-report.md
+          echo "" >> badge-report.md
+          
+          echo "## Updated Metrics" >> badge-report.md
+          cat repo_metrics.json | jq -r 'to_entries[] | "- \(.key): \(.value)"' >> badge-report.md
+          
+          echo "" >> badge-report.md
+          echo "## Badge Status" >> badge-report.md
+          if [ "${{ steps.changes.outputs.changed }}" = "true" ]; then
+            echo "✅ README badges updated successfully" >> badge-report.md
+          else
+            echo "ℹ️ No changes required" >> badge-report.md
+          fi
+
+      - name: Upload badge report
+        uses: actions/upload-artifact@v3
+        with:
+          name: badge-update-report
+          path: badge-report.md
+          retention-days: 30
+                  '

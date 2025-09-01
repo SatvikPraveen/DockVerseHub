@@ -1,0 +1,435 @@
+# 08_orchestration/swarm-advanced/placement-constraints.yml
+
+version: '3.8'
+
+services:
+  # Database - only on manager nodes with SSD
+  database:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=appdb
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=secret123
+    volumes:
+      - database-data:/var/lib/postgresql/data
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+          - node.labels.storage == ssd
+          - node.labels.datacenter == primary
+        max_replicas_per_node: 1
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+    networks:
+      - database-network
+
+  # Cache - spread across zones, prefer high-memory nodes
+  cache:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - cache-data:/data
+    deploy:
+      replicas: 3
+      placement:
+        constraints:
+          - node.role == worker
+          - node.labels.memory == high
+        preferences:
+          - spread: node.labels.zone
+          - spread: node.labels.rack
+        max_replicas_per_node: 1
+      restart_policy:
+        condition: on-failure
+        delay: 15s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    networks:
+      - cache-network
+
+  # Web frontend - worker nodes only, spread by zone
+  web:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    deploy:
+      replicas: 6
+      placement:
+        constraints:
+          - node.role == worker
+          - node.labels.type == web
+          - node.platform.os == linux
+        preferences:
+          - spread: node.labels.zone
+          - spread: node.labels.availability_zone
+        max_replicas_per_node: 2
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+        reservations:
+          cpus: '0.25'
+          memory: 64M
+    networks:
+      - web-network
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # API - compute-optimized nodes
+  api:
+    image: python:3.11-alpine
+    command: |
+      sh -c 'pip install flask &&
+             cat > /app.py << "EOF"
+from flask import Flask, jsonify
+app = Flask(__name__)
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "healthy"})
+
+@app.route("/api/data")
+def data():
+    return jsonify({"message": "API response"})
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)
+EOF
+             python /app.py'
+    deploy:
+      replicas: 4
+      placement:
+        constraints:
+          - node.role == worker
+          - node.labels.cpu == optimized
+          - node.labels.network == fast
+        preferences:
+          - spread: node.labels.zone
+        max_replicas_per_node: 2
+      restart_policy:
+        condition: on-failure
+        delay: 20s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 512M
+        reservations:
+          cpus: '1.0'
+          memory: 256M
+    networks:
+      - api-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # GPU workload - only on GPU-enabled nodes
+  ml-processor:
+    image: tensorflow/tensorflow:latest-gpu
+    command: python -c "import time; [print(f'Processing batch {i}') or time.sleep(10) for i in range(1000)]"
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.labels.gpu == nvidia
+          - node.labels.gpu.memory >= 8GB
+          - node.role == worker
+        preferences:
+          - spread: node.labels.zone
+        max_replicas_per_node: 1
+      restart_policy:
+        condition: on-failure
+        delay: 60s
+        max_attempts: 2
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+        reservations:
+          cpus: '2.0'
+          memory: 2G
+        generic_resources:
+          - discrete_resource_spec:
+              kind: 'NVIDIA-GPU'
+              value: 1
+    networks:
+      - ml-network
+
+  # Log collector - global service on all nodes
+  log-collector:
+    image: fluent/fluentd:v1.16-debian-1
+    ports:
+      - target: 24224
+        published: 24224
+        protocol: tcp
+        mode: host
+    volumes:
+      - /var/log:/host/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    deploy:
+      mode: global
+      placement:
+        constraints:
+          - node.platform.os == linux
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    networks:
+      - logging-network
+
+  # Monitoring - manager nodes with monitoring label
+  monitoring:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - monitoring-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=365d'
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+          - node.labels.monitoring == enabled
+          - node.labels.storage == ssd
+        max_replicas_per_node: 1
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+    networks:
+      - monitoring-network
+
+  # Edge cache - specific geographic regions
+  edge-cache-us-east:
+    image: nginx:alpine
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.labels.region == us-east-1
+          - node.labels.type == edge
+          - node.role == worker
+        preferences:
+          - spread: node.labels.availability_zone
+        max_replicas_per_node: 1
+      restart_policy:
+        condition: on-failure
+    networks:
+      - edge-network
+
+  edge-cache-eu-west:
+    image: nginx:alpine
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.labels.region == eu-west-1
+          - node.labels.type == edge
+          - node.role == worker
+        preferences:
+          - spread: node.labels.availability_zone
+        max_replicas_per_node: 1
+      restart_policy:
+        condition: on-failure
+    networks:
+      - edge-network
+
+  # Background workers - low priority nodes
+  background-worker:
+    image: python:3.11-alpine
+    command: python -c "import time; [print(f'Background task {i}') or time.sleep(30) for i in range(1000)]"
+    deploy:
+      replicas: 8
+      placement:
+        constraints:
+          - node.role == worker
+          - node.labels.priority == low
+          - node.labels.preemptible == true
+        preferences:
+          - spread: node.labels.zone
+          - spread: node.labels.instance_type
+        max_replicas_per_node: 4
+      restart_policy:
+        condition: on-failure
+        delay: 60s
+        max_attempts: 10
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    networks:
+      - worker-network
+
+  # Security scanner - isolated network segment
+  security-scanner:
+    image: alpine:latest
+    command: sh -c "while true; do echo 'Security scan running...'; sleep 300; done"
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.security == isolated
+          - node.labels.compliance == pci
+          - node.role == worker
+        max_replicas_per_node: 1
+      restart_policy:
+        condition: on-failure
+        delay: 120s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    networks:
+      - security-network
+
+  # Load balancer - ingress nodes only
+  load-balancer:
+    image: traefik:v3.0
+    ports:
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: host
+      - target: 443
+        published: 443
+        protocol: tcp
+        mode: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    deploy:
+      replicas: 3
+      placement:
+        constraints:
+          - node.labels.ingress == enabled
+          - node.labels.public_ip == true
+          - node.role == worker
+        preferences:
+          - spread: node.labels.zone
+        max_replicas_per_node: 1
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 5
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+    networks:
+      - ingress-network
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  database-network:
+    driver: overlay
+    driver_opts:
+      encrypted: "true"
+      
+  cache-network:
+    driver: overlay
+    
+  web-network:
+    driver: overlay
+    attachable: true
+    
+  api-network:
+    driver: overlay
+    
+  ml-network:
+    driver: overlay
+    driver_opts:
+      encrypted: "true"
+      
+  logging-network:
+    driver: overlay
+    
+  monitoring-network:
+    driver: overlay
+    
+  edge-network:
+    driver: overlay
+    
+  worker-network:
+    driver: overlay
+    
+  security-network:
+    driver: overlay
+    driver_opts:
+      encrypted: "true"
+      
+  ingress-network:
+    driver: overlay
+    attachable: true
+
+volumes:
+  database-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/docker/data/postgres
+      
+  cache-data:
+    driver: local
+    
+  monitoring-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/docker/data/prometheus

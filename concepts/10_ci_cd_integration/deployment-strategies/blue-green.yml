@@ -1,0 +1,508 @@
+# 10_ci_cd_integration/deployment-strategies/blue-green.yml
+
+# Blue-Green Deployment Strategy
+# Zero-downtime deployments with instant rollback capability
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+  labels:
+    deployment-strategy: blue-green
+
+---
+# Blue Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-blue
+  namespace: production
+  labels:
+    app: myapp
+    version: blue
+    deployment-strategy: blue-green
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: myapp
+      version: blue
+  template:
+    metadata:
+      labels:
+        app: myapp
+        version: blue
+        deployment: blue
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: app
+          image: myapp:blue
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: VERSION
+              value: blue
+            - name: DEPLOYMENT_TYPE
+              value: blue-green
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 15"]
+
+---
+# Green Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-green
+  namespace: production
+  labels:
+    app: myapp
+    version: green
+    deployment-strategy: blue-green
+spec:
+  replicas: 0 # Initially scaled to 0
+  selector:
+    matchLabels:
+      app: myapp
+      version: green
+  template:
+    metadata:
+      labels:
+        app: myapp
+        version: green
+        deployment: green
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: app
+          image: myapp:green
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: VERSION
+              value: green
+            - name: DEPLOYMENT_TYPE
+              value: blue-green
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 15"]
+
+---
+# Production Service (switches between blue/green)
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-service
+  namespace: production
+  labels:
+    app: myapp
+    deployment-strategy: blue-green
+spec:
+  selector:
+    app: myapp
+    version: blue # Initially points to blue
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  type: LoadBalancer
+
+---
+# Blue Service (for testing)
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-blue-service
+  namespace: production
+  labels:
+    app: myapp
+    version: blue
+spec:
+  selector:
+    app: myapp
+    version: blue
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  type: ClusterIP
+
+---
+# Green Service (for testing)
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-green-service
+  namespace: production
+  labels:
+    app: myapp
+    version: green
+spec:
+  selector:
+    app: myapp
+    version: green
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  type: ClusterIP
+
+---
+# Blue-Green Deployment Script ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blue-green-scripts
+  namespace: production
+data:
+  deploy.sh: |
+    #!/bin/bash
+    set -e
+
+    NEW_VERSION=$1
+    NEW_IMAGE=$2
+
+    if [[ -z "$NEW_VERSION" || -z "$NEW_IMAGE" ]]; then
+        echo "Usage: $0 <version> <image>"
+        exit 1
+    fi
+
+    echo "Starting blue-green deployment..."
+    echo "New version: $NEW_VERSION"
+    echo "New image: $NEW_IMAGE"
+
+    # Determine current active deployment
+    CURRENT_SELECTOR=$(kubectl get service app-service -n production -o jsonpath='{.spec.selector.version}')
+    echo "Current active version: $CURRENT_SELECTOR"
+
+    if [[ "$CURRENT_SELECTOR" == "blue" ]]; then
+        TARGET="green"
+        CURRENT="blue"
+    else
+        TARGET="blue"
+        CURRENT="green"
+    fi
+
+    echo "Deploying to $TARGET environment..."
+
+    # Update target deployment with new image
+    kubectl set image deployment/app-$TARGET app=$NEW_IMAGE -n production
+
+    # Scale up target deployment
+    kubectl scale deployment app-$TARGET --replicas=3 -n production
+
+    # Wait for target deployment to be ready
+    echo "Waiting for $TARGET deployment to be ready..."
+    kubectl rollout status deployment/app-$TARGET -n production --timeout=600s
+
+    # Verify target deployment health
+    echo "Running health checks on $TARGET environment..."
+    kubectl port-forward svc/app-$TARGET-service 8080:80 -n production &
+    PORT_FORWARD_PID=$!
+    sleep 10
+
+    # Health check
+    if curl -f http://localhost:8080/health; then
+        echo "Health check passed for $TARGET environment"
+    else
+        echo "Health check failed for $TARGET environment"
+        kill $PORT_FORWARD_PID
+        exit 1
+    fi
+    kill $PORT_FORWARD_PID
+
+    # Switch traffic to target
+    echo "Switching traffic from $CURRENT to $TARGET..."
+    kubectl patch service app-service -n production -p '{"spec":{"selector":{"version":"'$TARGET'"}}}'
+
+    echo "Traffic switched to $TARGET environment"
+
+    # Wait and verify
+    sleep 30
+    echo "Verifying production traffic..."
+
+    # Scale down old deployment
+    echo "Scaling down $CURRENT environment..."
+    kubectl scale deployment app-$CURRENT --replicas=0 -n production
+
+    echo "Blue-green deployment completed successfully!"
+    echo "Active environment: $TARGET"
+
+  rollback.sh: |
+    #!/bin/bash
+    set -e
+
+    echo "Starting blue-green rollback..."
+
+    # Get current active deployment
+    CURRENT_SELECTOR=$(kubectl get service app-service -n production -o jsonpath='{.spec.selector.version}')
+    echo "Current active version: $CURRENT_SELECTOR"
+
+    if [[ "$CURRENT_SELECTOR" == "blue" ]]; then
+        ROLLBACK_TO="green"
+    else
+        ROLLBACK_TO="blue"
+    fi
+
+    echo "Rolling back to $ROLLBACK_TO environment..."
+
+    # Ensure rollback target has replicas
+    ROLLBACK_REPLICAS=$(kubectl get deployment app-$ROLLBACK_TO -n production -o jsonpath='{.spec.replicas}')
+    if [[ "$ROLLBACK_REPLICAS" == "0" ]]; then
+        echo "Scaling up $ROLLBACK_TO environment for rollback..."
+        kubectl scale deployment app-$ROLLBACK_TO --replicas=3 -n production
+        kubectl rollout status deployment/app-$ROLLBACK_TO -n production --timeout=300s
+    fi
+
+    # Switch traffic immediately
+    kubectl patch service app-service -n production -p '{"spec":{"selector":{"version":"'$ROLLBACK_TO'"}}}'
+
+    echo "Traffic switched back to $ROLLBACK_TO environment"
+    echo "Rollback completed successfully!"
+
+  status.sh: |
+    #!/bin/bash
+
+    echo "=== Blue-Green Deployment Status ==="
+
+    # Current active version
+    ACTIVE_VERSION=$(kubectl get service app-service -n production -o jsonpath='{.spec.selector.version}')
+    echo "Active version: $ACTIVE_VERSION"
+
+    # Blue deployment status
+    echo ""
+    echo "Blue Deployment:"
+    kubectl get deployment app-blue -n production -o wide
+    kubectl get pods -l version=blue -n production
+
+    # Green deployment status
+    echo ""
+    echo "Green Deployment:"
+    kubectl get deployment app-green -n production -o wide
+    kubectl get pods -l version=green -n production
+
+    # Service status
+    echo ""
+    echo "Services:"
+    kubectl get services -l app=myapp -n production
+
+    # Recent events
+    echo ""
+    echo "Recent Events:"
+    kubectl get events -n production --sort-by='.lastTimestamp' | tail -10
+
+---
+# Blue-Green Job for automated deployment
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: blue-green-deploy
+  namespace: production
+  labels:
+    deployment-strategy: blue-green
+spec:
+  template:
+    metadata:
+      labels:
+        job: blue-green-deploy
+    spec:
+      serviceAccountName: blue-green-deployer
+      containers:
+        - name: deployer
+          image: bitnami/kubectl:latest
+          command: ["/bin/bash"]
+          args:
+            - -c
+            - |
+              # Mount the deployment script
+              cp /scripts/deploy.sh /tmp/deploy.sh
+              chmod +x /tmp/deploy.sh
+
+              # Run deployment
+              /tmp/deploy.sh ${NEW_VERSION} ${NEW_IMAGE}
+          env:
+            - name: NEW_VERSION
+              value: "latest"
+            - name: NEW_IMAGE
+              value: "myapp:latest"
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+      volumes:
+        - name: scripts
+          configMap:
+            name: blue-green-scripts
+      restartPolicy: Never
+  backoffLimit: 3
+
+---
+# ServiceAccount for blue-green operations
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: blue-green-deployer
+  namespace: production
+
+---
+# Role for blue-green operations
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: production
+  name: blue-green-deployer
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+
+---
+# RoleBinding for blue-green operations
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: blue-green-deployer
+  namespace: production
+subjects:
+  - kind: ServiceAccount
+    name: blue-green-deployer
+    namespace: production
+roleRef:
+  kind: Role
+  name: blue-green-deployer
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# HorizontalPodAutoscaler for Blue
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: app-blue-hpa
+  namespace: production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: app-blue
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+---
+# HorizontalPodAutoscaler for Green
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: app-green-hpa
+  namespace: production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: app-green
+  minReplicas: 0
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+---
+# ServiceMonitor for Prometheus
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: app-blue-green
+  namespace: production
+  labels:
+    app: myapp
+spec:
+  selector:
+    matchLabels:
+      app: myapp
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

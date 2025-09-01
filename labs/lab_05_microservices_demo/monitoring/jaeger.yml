@@ -1,0 +1,41 @@
+# File Location: labs/lab_05_microservices_demo/monitoring/jaeger.yml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jaeger-config
+data:
+  jaeger.yml: |
+    collector:
+      zipkin:
+        http-port: 9411
+      otlp:
+        grpc:
+          host-port: 0.0.0.0:4317
+        http:
+          host-port: 0.0.0.0:4318
+
+    storage:
+      type: memory
+      memory:
+        max-traces: 10000
+
+    query:
+      base-path: /
+      ui-config: |
+        {
+          "dependencies": {
+            "dagMaxNumServices": 200,
+            "menuEnabled": true
+          },
+          "archiveEnabled": true,
+          "tracking": {
+            "gaID": "UA-000000-2",
+            "trackErrors": true
+          }
+        }
+
+    sampling:
+      default_strategy:
+        type: probabilistic
+        param: 1.0

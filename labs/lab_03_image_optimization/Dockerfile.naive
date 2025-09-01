@@ -1,0 +1,36 @@
+# File Location: labs/lab_03_image_optimization/Dockerfile.naive
+
+# BAD PRACTICES - DON'T USE IN PRODUCTION
+
+FROM ubuntu:22.04
+
+# Install everything without optimization
+RUN apt-get update
+RUN apt-get install -y python3
+RUN apt-get install -y python3-pip
+RUN apt-get install -y curl
+RUN apt-get install -y wget
+RUN apt-get install -y vim
+RUN apt-get install -y git
+RUN apt-get install -y build-essential
+RUN apt-get install -y pkg-config
+RUN apt-get install -y libssl-dev
+RUN apt-get install -y libffi-dev
+RUN apt-get install -y python3-dev
+
+# Copy everything (including unnecessary files)
+COPY . /app
+
+# Set working directory after copying
+WORKDIR /app
+
+# Install Python dependencies
+RUN pip3 install -r requirements.txt
+
+# Don't clean up package cache
+# Don't use non-root user
+# Don't optimize layers
+
+EXPOSE 5000
+
+CMD ["python3", "app.py"]

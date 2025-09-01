@@ -1,0 +1,514 @@
+# 10_ci_cd_integration/github-actions/security-scan.yml
+
+name: Security Scanning Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * *" # Daily security scan at 6 AM UTC
+  workflow_dispatch:
+    inputs:
+      scan_type:
+        description: "Type of security scan"
+        required: true
+        default: "full"
+        type: choice
+        options:
+          - full
+          - container-only
+          - code-only
+          - dependencies-only
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Dependency vulnerability scanning
+  dependency-scan:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.scan_type == 'full' || github.event.inputs.scan_type == 'dependencies-only' || github.event.inputs.scan_type == '' }}
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: |
+          npm audit --audit-level moderate --json > npm-audit-results.json
+          npm audit --audit-level moderate
+        continue-on-error: true
+
+      - name: Upload npm audit results
+        uses: actions/upload-artifact@v3
+        with:
+          name: npm-audit-results
+          path: npm-audit-results.json
+
+      - name: Run Snyk dependencies scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --json-file-output=snyk-deps.json
+        continue-on-error: true
+
+      - name: Upload Snyk dependencies results
+        uses: actions/upload-artifact@v3
+        with:
+          name: snyk-dependencies-results
+          path: snyk-deps.json
+
+      - name: Run OSSF Scorecard
+        uses: ossf/scorecard-action@v2.3.1
+        with:
+          results_file: scorecard-results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: Upload OSSF Scorecard results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: scorecard-results.sarif
+
+  # Code security analysis
+  code-analysis:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.scan_type == 'full' || github.event.inputs.scan_type == 'code-only' || github.event.inputs.scan_type == '' }}
+
+    permissions:
+      contents: read
+      security-events: write
+
+    strategy:
+      matrix:
+        language: ["javascript", "python"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: ${{ matrix.language }}
+          config-file: ./.github/codeql/codeql-config.yml
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v2
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+        with:
+          category: "/language:${{matrix.language}}"
+
+      - name: Run Semgrep static analysis
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/secrets
+            p/owasp-top-ten
+            p/dockerfile
+          generateSarif: "1"
+
+      - name: Upload Semgrep results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+
+      - name: Run Bandit Python security scan
+        if: matrix.language == 'python'
+        run: |
+          pip install bandit[toml]
+          bandit -r . -f sarif -o bandit-results.sarif || true
+
+      - name: Upload Bandit results
+        if: matrix.language == 'python'
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: bandit-results.sarif
+
+      - name: Run ESLint security rules
+        if: matrix.language == 'javascript'
+        run: |
+          npm ci
+          npx eslint . --ext .js,.jsx,.ts,.tsx --config .eslintrc.security.js -f @microsoft/eslint-formatter-sarif -o eslint-security-results.sarif || true
+
+      - name: Upload ESLint security results
+        if: matrix.language == 'javascript'
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: eslint-security-results.sarif
+
+  # Secret scanning
+  secret-scan:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.scan_type == 'full' || github.event.inputs.scan_type == 'code-only' || github.event.inputs.scan_type == '' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run TruffleHog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: main
+          head: HEAD
+          extra_args: --debug --only-verified --json
+
+      - name: Run GitLeaks
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/workspace zricethezav/gitleaks:latest \
+            detect --source /workspace --report-format sarif --report-path /workspace/gitleaks-results.sarif || true
+
+      - name: Upload GitLeaks results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: gitleaks-results.sarif
+
+      - name: Detect secrets with detect-secrets
+        run: |
+          pip install detect-secrets
+          detect-secrets scan --all-files --baseline .secrets.baseline
+          detect-secrets audit .secrets.baseline --report --output-file secrets-report.json || true
+
+      - name: Upload secrets scan results
+        uses: actions/upload-artifact@v3
+        with:
+          name: secrets-scan-results
+          path: |
+            .secrets.baseline
+            secrets-report.json
+
+  # Docker image security scanning
+  container-scan:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.scan_type == 'full' || github.event.inputs.scan_type == 'container-only' || github.event.inputs.scan_type == '' }}
+
+    permissions:
+      contents: read
+      security-events: write
+      packages: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build test image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: test-image:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "test-image:latest"
+          format: "sarif"
+          output: "trivy-results.sarif"
+          severity: "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL"
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: "trivy-results.sarif"
+
+      - name: Run Grype vulnerability scanner
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+          grype test-image:latest -o sarif --file grype-results.sarif
+          grype test-image:latest -o json --file grype-results.json
+
+      - name: Upload Grype results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: "grype-results.sarif"
+
+      - name: Run Snyk container scan
+        uses: snyk/actions/docker@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: test-image:latest
+          args: --severity-threshold=medium --json-file-output=snyk-container.json
+        continue-on-error: true
+
+      - name: Run Docker Scout
+        uses: docker/scout-action@v1
+        with:
+          command: cves,recommendations,compare
+          image: test-image:latest
+          sarif-file: scout-results.sarif
+          summary: true
+          write-comment: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Docker Scout results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: "scout-results.sarif"
+
+      - name: Run Hadolint Dockerfile linter
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          format: sarif
+          output-file: hadolint-results.sarif
+          no-fail: true
+
+      - name: Upload Hadolint results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: hadolint-results.sarif
+
+      - name: Generate SBOM
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+          syft test-image:latest -o spdx-json --file sbom.spdx.json
+          syft test-image:latest -o cyclonedx-json --file sbom.cyclonedx.json
+
+      - name: Upload security artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: container-security-results
+          path: |
+            trivy-results.sarif
+            grype-results.json
+            snyk-container.json
+            sbom.spdx.json
+            sbom.cyclonedx.json
+
+  # Infrastructure as Code security
+  iac-scan:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.scan_type == 'full' || github.event.inputs.scan_type == 'code-only' || github.event.inputs.scan_type == '' }}
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov IaC scanner
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: dockerfile,docker_compose,kubernetes,terraform
+          output_format: sarif
+          output_file_path: checkov-results.sarif
+          skip_check: CKV_DOCKER_2,CKV_DOCKER_3 # Skip specific checks if needed
+
+      - name: Upload Checkov results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: checkov-results.sarif
+
+      - name: Run Terrascan
+        run: |
+          curl -L "$(curl -s https://api.github.com/repos/tenable/terrascan/releases/latest | grep -o -E "https://.+?_Linux_x86_64.tar.gz")" > terrascan.tar.gz
+          tar -xf terrascan.tar.gz terrascan && rm terrascan.tar.gz
+          ./terrascan scan -d . -o sarif --sarif-file terrascan-results.sarif || true
+
+      - name: Upload Terrascan results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: terrascan-results.sarif
+
+      - name: Run kube-score (if Kubernetes manifests exist)
+        run: |
+          if find . -name "*.yaml" -o -name "*.yml" | grep -E "(k8s|kubernetes|manifests)" > /dev/null; then
+            curl -L https://github.com/zegl/kube-score/releases/latest/download/kube-score_linux_amd64 -o kube-score
+            chmod +x kube-score
+            find . -name "*.yaml" -o -name "*.yml" | grep -E "(k8s|kubernetes|manifests)" | xargs ./kube-score score --output-format sarif > kube-score-results.sarif || true
+          fi
+
+      - name: Upload kube-score results
+        if: hashFiles('kube-score-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: kube-score-results.sarif
+
+  # Compliance and licensing scan
+  compliance-scan:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.scan_type == 'full' || github.event.inputs.scan_type == '' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run license compliance check
+        run: |
+          npx license-checker --json --out license-report.json
+          npx license-checker --summary --out license-summary.txt
+
+      - name: Run FOSSA scan
+        if: ${{ secrets.FOSSA_API_KEY != '' }}
+        run: |
+          curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
+          fossa analyze
+          fossa test
+        env:
+          FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
+
+      - name: Upload compliance results
+        uses: actions/upload-artifact@v3
+        with:
+          name: compliance-results
+          path: |
+            license-report.json
+            license-summary.txt
+
+  # Security report generation
+  security-report:
+    runs-on: ubuntu-latest
+    needs:
+      [
+        dependency-scan,
+        code-analysis,
+        secret-scan,
+        container-scan,
+        iac-scan,
+        compliance-scan,
+      ]
+    if: always()
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+
+      - name: Generate security dashboard
+        run: |
+          python3 << 'EOF'
+          import json
+          import os
+          from datetime import datetime
+
+          # Create security report
+          report = {
+              "scan_date": datetime.now().isoformat(),
+              "repository": "${{ github.repository }}",
+              "commit": "${{ github.sha }}",
+              "branch": "${{ github.ref_name }}",
+              "results": {
+                  "dependency_scan": "${{ needs.dependency-scan.result }}",
+                  "code_analysis": "${{ needs.code-analysis.result }}",
+                  "secret_scan": "${{ needs.secret-scan.result }}",
+                  "container_scan": "${{ needs.container-scan.result }}",
+                  "iac_scan": "${{ needs.iac-scan.result }}",
+                  "compliance_scan": "${{ needs.compliance-scan.result }}"
+              },
+              "artifacts": []
+          }
+
+          # List all artifacts
+          for root, dirs, files in os.walk("."):
+              for file in files:
+                  if file.endswith(('.json', '.sarif', '.txt')):
+                      report["artifacts"].append(os.path.join(root, file))
+
+          # Write report
+          with open('security-report.json', 'w') as f:
+              json.dump(report, f, indent=2)
+              
+          print("Security scan completed!")
+          print(f"Results: {report['results']}")
+          EOF
+
+      - name: Upload security report
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-dashboard
+          path: security-report.json
+
+      - name: Post security summary
+        run: |
+          echo "## 🔒 Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Scan Type | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Dependencies | ${{ needs.dependency-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Code Analysis | ${{ needs.code-analysis.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Secret Detection | ${{ needs.secret-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Container Security | ${{ needs.container-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| IaC Security | ${{ needs.iac-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Compliance | ${{ needs.compliance-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Scan Date:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Send Slack notification
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: |
+            🔒 Security Scan Results for ${{ github.repository }}
+
+            📊 Results Summary:
+            • Dependencies: ${{ needs.dependency-scan.result }}
+            • Code Analysis: ${{ needs.code-analysis.result }}
+            • Secret Detection: ${{ needs.secret-scan.result }}
+            • Container Security: ${{ needs.container-scan.result }}
+            • IaC Security: ${{ needs.iac-scan.result }}
+            • Compliance: ${{ needs.compliance-scan.result }}
+
+            📝 Branch: ${{ github.ref_name }}
+            🔗 Commit: ${{ github.sha }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -1,0 +1,54 @@
+# File Location: concepts/04_networking/custom-networks/overlay-demo.yml
+
+version: "3.8"
+
+services:
+  web1:
+    image: nginx:alpine
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+    networks:
+      - overlay-net
+    ports:
+      - "8080:80"
+
+  web2:
+    image: httpd:alpine
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+    networks:
+      - overlay-net
+    ports:
+      - "8081:80"
+
+  app:
+    image: alpine:latest
+    command: |
+      sh -c '
+        apk add --no-cache curl
+        while true; do
+          echo "Testing web1: $(curl -s http://web1/ | head -1 | cut -c1-50)..."
+          echo "Testing web2: $(curl -s http://web2/ | head -1 | cut -c1-50)..."
+          sleep 10
+        done
+      '
+    deploy:
+      replicas: 1
+    networks:
+      - overlay-net
+    depends_on:
+      - web1
+      - web2
+
+networks:
+  overlay-net:
+    driver: overlay
+    attachable: true
+    driver_opts:
+      encrypted: "true"

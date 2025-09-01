@@ -1,0 +1,507 @@
+# 10_ci_cd_integration/azure-devops/azure-pipelines.yml
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+      - feature/*
+  tags:
+    include:
+      - v*
+
+pr:
+  branches:
+    include:
+      - main
+      - develop
+
+variables:
+  # Container Registry
+  containerRegistry: "your-acr.azurecr.io"
+  repositoryName: "myapp"
+  dockerfilePath: "$(Build.SourcesDirectory)/Dockerfile"
+
+  # Build Configuration
+  buildConfiguration: "Release"
+  vmImageName: "ubuntu-latest"
+
+  # Kubernetes
+  k8sNamespaceForPR: "review-$(System.PullRequest.PullRequestId)"
+
+  # Security
+  trivyVersion: "0.45.0"
+
+  # Dynamic Variables
+  ${{ if eq(variables['Build.SourceBranch'], 'refs/heads/main') }}:
+    imageTag: "latest"
+    deployEnvironment: "production"
+  ${{ elseif eq(variables['Build.SourceBranch'], 'refs/heads/develop') }}:
+    imageTag: "develop"
+    deployEnvironment: "staging"
+  ${{ else }}:
+    imageTag: "$(Build.BuildNumber)"
+    deployEnvironment: "development"
+
+stages:
+  - stage: Build
+    displayName: "Build and Test"
+    jobs:
+      - job: Build
+        displayName: "Build Docker Image"
+        pool:
+          vmImage: $(vmImageName)
+
+        variables:
+          fullImageName: "$(containerRegistry)/$(repositoryName):$(imageTag)"
+
+        steps:
+          - checkout: self
+            fetchDepth: 0
+
+          - task: Docker@2
+            displayName: "Login to ACR"
+            inputs:
+              command: "login"
+              containerRegistry: "ACR-Connection"
+
+          - task: DockerInstaller@0
+            displayName: "Install Docker Buildx"
+            inputs:
+              dockerVersion: "24.0.5"
+              releaseType: "stable"
+
+          - script: |
+              # Setup BuildKit and Buildx
+              docker buildx create --name builder --use
+              docker buildx inspect --bootstrap
+              docker buildx ls
+            displayName: "Setup Docker Buildx"
+
+          - task: Docker@2
+            displayName: "Build and Push Multi-Platform Image"
+            inputs:
+              command: "buildAndPush"
+              repository: "$(containerRegistry)/$(repositoryName)"
+              dockerfile: "$(dockerfilePath)"
+              tags: |
+                $(imageTag)
+                build-$(Build.BuildNumber)
+              buildContext: "$(Build.SourcesDirectory)"
+              arguments: |
+                --platform linux/amd64,linux/arm64
+                --build-arg BUILDTIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+                --build-arg VERSION=$(imageTag)
+                --build-arg REVISION=$(Build.SourceVersion)
+                --build-arg BUILD_NUMBER=$(Build.BuildNumber)
+                --cache-from type=registry,ref=$(containerRegistry)/$(repositoryName):cache
+                --cache-to type=registry,ref=$(containerRegistry)/$(repositoryName):cache,mode=max
+
+          - script: |
+              # Generate image manifest
+              docker buildx imagetools inspect $(fullImageName) --format "{{json .}}" > image-manifest.json
+
+              # Test image
+              docker run --rm --name test-container \
+                -e NODE_ENV=test \
+                $(fullImageName) \
+                timeout 30 npm run test:smoke
+            displayName: "Test Docker Image"
+
+          - publish: image-manifest.json
+            artifact: "image-manifest"
+            displayName: "Publish Image Manifest"
+
+  - stage: Test
+    displayName: "Quality Assurance"
+    dependsOn: Build
+    jobs:
+      - job: UnitTests
+        displayName: "Unit Tests"
+        pool:
+          vmImage: $(vmImageName)
+
+        steps:
+          - checkout: self
+
+          - task: NodeTool@0
+            displayName: "Install Node.js"
+            inputs:
+              versionSpec: "18.x"
+
+          - script: |
+              npm ci --prefer-offline
+              npm run test:unit -- --coverage --reporter=junit --outputFile=test-results.xml
+            displayName: "Run Unit Tests"
+
+          - task: PublishTestResults@2
+            displayName: "Publish Test Results"
+            inputs:
+              testResultsFormat: "JUnit"
+              testResultsFiles: "test-results.xml"
+              searchFolder: "$(System.DefaultWorkingDirectory)"
+              testRunTitle: "Unit Tests"
+
+          - task: PublishCodeCoverageResults@1
+            displayName: "Publish Code Coverage"
+            inputs:
+              codeCoverageTool: "Cobertura"
+              summaryFileLocation: "coverage/cobertura-coverage.xml"
+              reportDirectory: "coverage"
+              failIfCoverageEmpty: false
+
+      - job: SecurityScan
+        displayName: "Security Scanning"
+        pool:
+          vmImage: $(vmImageName)
+
+        variables:
+          fullImageName: "$(containerRegistry)/$(repositoryName):$(imageTag)"
+
+        steps:
+          - checkout: self
+
+          - task: Docker@2
+            displayName: "Login to ACR"
+            inputs:
+              command: "login"
+              containerRegistry: "ACR-Connection"
+
+          - script: |
+              # Install Trivy
+              curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v$(trivyVersion)
+              trivy --version
+            displayName: "Install Trivy"
+
+          - script: |
+              # Pull image for scanning
+              docker pull $(fullImageName)
+
+              # Vulnerability scan
+              trivy image --format template --template "@contrib/junit.tpl" -o trivy-results.xml $(fullImageName)
+              trivy image --format json -o trivy-results.json $(fullImageName)
+
+              # Configuration scan
+              trivy config --format json -o trivy-config.json .
+
+              # Generate SBOM
+              trivy image --format spdx-json -o sbom.spdx.json $(fullImageName)
+
+              # Check for critical vulnerabilities
+              trivy image --exit-code 1 --severity CRITICAL $(fullImageName)
+            displayName: "Security Vulnerability Scan"
+            continueOnError: true
+
+          - task: PublishTestResults@2
+            displayName: "Publish Security Results"
+            inputs:
+              testResultsFormat: "JUnit"
+              testResultsFiles: "trivy-results.xml"
+              testRunTitle: "Security Scan"
+              failTaskOnFailedTests: false
+
+          - publish: |
+              trivy-results.json
+              trivy-config.json
+              sbom.spdx.json
+            artifact: "security-reports"
+            displayName: "Publish Security Artifacts"
+
+      - job: IntegrationTests
+        displayName: "Integration Tests"
+        pool:
+          vmImage: $(vmImageName)
+
+        variables:
+          fullImageName: "$(containerRegistry)/$(repositoryName):$(imageTag)"
+
+        services:
+          postgres:
+            image: postgres:15-alpine
+            env:
+              POSTGRES_USER: testuser
+              POSTGRES_PASSWORD: testpass
+              POSTGRES_DB: testdb
+            ports:
+              - 5432:5432
+
+          redis:
+            image: redis:7-alpine
+            ports:
+              - 6379:6379
+
+        steps:
+          - checkout: self
+
+          - task: Docker@2
+            displayName: "Login to ACR"
+            inputs:
+              command: "login"
+              containerRegistry: "ACR-Connection"
+
+          - script: |
+              # Start application container
+              docker run -d --name app-test \
+                --network host \
+                -e DATABASE_URL=postgres://testuser:testpass@localhost:5432/testdb \
+                -e REDIS_URL=redis://localhost:6379 \
+                -e NODE_ENV=test \
+                -p 3000:3000 \
+                $(fullImageName)
+
+              # Wait for application
+              timeout 120 bash -c '
+                until curl -f http://localhost:3000/health; do
+                  echo "Waiting for application..."
+                  sleep 5
+                done
+              '
+
+              # Run integration tests
+              npm ci --prefer-offline
+              npm run test:integration
+            displayName: "Run Integration Tests"
+
+          - script: |
+              docker rm -f app-test || true
+            displayName: "Cleanup"
+            condition: always()
+
+  - stage: Deploy
+    displayName: "Deploy to Environments"
+    dependsOn:
+      - Build
+      - Test
+    condition: and(succeeded(), in(variables['Build.SourceBranch'], 'refs/heads/main', 'refs/heads/develop'))
+
+    variables:
+      fullImageName: "$(containerRegistry)/$(repositoryName):$(imageTag)"
+
+    jobs:
+      - deployment: DeployToStaging
+        displayName: "Deploy to Staging"
+        condition: eq(variables['Build.SourceBranch'], 'refs/heads/develop')
+        pool:
+          vmImage: $(vmImageName)
+        environment: "staging"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+
+                - task: KubernetesManifest@0
+                  displayName: "Deploy to Staging"
+                  inputs:
+                    action: "deploy"
+                    kubernetesServiceConnection: "k8s-staging"
+                    namespace: "staging"
+                    manifests: |
+                      k8s/staging/*.yaml
+                    containers: "$(fullImageName)"
+
+                - task: Kubernetes@1
+                  displayName: "Verify Deployment"
+                  inputs:
+                    connectionType: "Kubernetes Service Connection"
+                    kubernetesServiceEndpoint: "k8s-staging"
+                    namespace: "staging"
+                    command: "get"
+                    arguments: "pods -l app=myapp"
+
+                - script: |
+                    # Wait for rollout
+                    kubectl rollout status deployment/myapp -n staging --timeout=300s
+
+                    # Health check
+                    kubectl port-forward svc/myapp-service 8080:80 -n staging &
+                    sleep 10
+                    curl -f http://localhost:8080/health
+                  displayName: "Health Check"
+
+      - deployment: DeployToProduction
+        displayName: "Deploy to Production"
+        condition: eq(variables['Build.SourceBranch'], 'refs/heads/main')
+        pool:
+          vmImage: $(vmImageName)
+        environment: "production"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+
+                - download: current
+                  artifact: "security-reports"
+
+                - script: |
+                    # Verify no critical vulnerabilities before production deployment
+                    if grep -q '"Severity": "CRITICAL"' $(Pipeline.Workspace)/security-reports/trivy-results.json; then
+                      echo "Critical vulnerabilities found! Blocking production deployment."
+                      exit 1
+                    fi
+                  displayName: "Security Gate"
+
+                - task: KubernetesManifest@0
+                  displayName: "Blue-Green Deployment"
+                  inputs:
+                    action: "deploy"
+                    kubernetesServiceConnection: "k8s-production"
+                    namespace: "production"
+                    manifests: |
+                      k8s/production/*.yaml
+                    containers: "$(fullImageName)"
+                    strategy: "blue-green"
+
+                - task: Kubernetes@1
+                  displayName: "Verify Production Deployment"
+                  inputs:
+                    connectionType: "Kubernetes Service Connection"
+                    kubernetesServiceEndpoint: "k8s-production"
+                    namespace: "production"
+                    command: "get"
+                    arguments: "pods,svc -l app=myapp"
+
+                - script: |
+                    # Production verification
+                    kubectl rollout status deployment/myapp -n production --timeout=600s
+
+                    # Smoke tests
+                    export PROD_URL=$(kubectl get svc myapp-service -n production -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+                    curl -f http://$PROD_URL/health
+                    curl -f http://$PROD_URL/metrics
+                  displayName: "Production Verification"
+
+  - stage: PostDeploy
+    displayName: "Post-deployment Tasks"
+    dependsOn: Deploy
+    condition: succeeded()
+
+    jobs:
+      - job: Notifications
+        displayName: "Send Notifications"
+        pool:
+          vmImage: $(vmImageName)
+
+        steps:
+          - script: |
+              # Send Teams notification
+              curl -H "Content-Type: application/json" -d '{
+                "@type": "MessageCard",
+                "@context": "https://schema.org/extensions",
+                "summary": "Deployment Success",
+                "themeColor": "00FF00",
+                "sections": [{
+                  "activityTitle": "🚀 Deployment Successful",
+                  "activitySubtitle": "$(Build.DefinitionName) - Build $(Build.BuildNumber)",
+                  "facts": [{
+                    "name": "Environment",
+                    "value": "$(deployEnvironment)"
+                  }, {
+                    "name": "Image",
+                    "value": "$(fullImageName)"
+                  }, {
+                    "name": "Branch",
+                    "value": "$(Build.SourceBranchName)"
+                  }]
+                }]
+              }' $(TEAMS_WEBHOOK_URL)
+            displayName: "Teams Notification"
+            condition: succeeded()
+            env:
+              TEAMS_WEBHOOK_URL: $(teams-webhook-url)
+
+          - script: |
+              # Update Jira deployment
+              curl -X POST \
+                -H "Authorization: Bearer $(JIRA_TOKEN)" \
+                -H "Content-Type: application/json" \
+                -d '{
+                  "deploymentSequenceNumber": $(Build.BuildNumber),
+                  "displayName": "Build $(Build.BuildNumber)",
+                  "state": "successful",
+                  "pipeline": {
+                    "id": "$(Build.DefinitionName)",
+                    "displayName": "$(Build.DefinitionName)",
+                    "url": "$(System.CollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)"
+                  },
+                  "environment": {
+                    "id": "$(deployEnvironment)",
+                    "displayName": "$(deployEnvironment)",
+                    "type": "$(deployEnvironment)"
+                  }
+                }' \
+                "$(JIRA_BASE_URL)/rest/deployments/0.1/bulk"
+            displayName: "Update Jira"
+            condition: succeeded()
+            env:
+              JIRA_TOKEN: $(jira-token)
+              JIRA_BASE_URL: $(jira-base-url)
+
+      - job: Cleanup
+        displayName: "Cleanup Resources"
+        pool:
+          vmImage: $(vmImageName)
+
+        steps:
+          - task: Docker@2
+            displayName: "Login to ACR"
+            inputs:
+              command: "login"
+              containerRegistry: "ACR-Connection"
+
+          - script: |
+              # Cleanup old images (keep last 10)
+              az acr repository show-tags --name $(containerRegistry) --repository $(repositoryName) \
+                --orderby time_desc --output tsv | tail -n +11 | \
+                xargs -I {} az acr repository delete --name $(containerRegistry) --image $(repositoryName):{} --yes
+            displayName: "Cleanup Old Images"
+            condition: eq(variables['Build.SourceBranch'], 'refs/heads/main')
+
+  # PR-specific stages
+  - ${{ if eq(variables['Build.Reason'], 'PullRequest') }}:
+      - stage: PRValidation
+        displayName: "Pull Request Validation"
+        dependsOn: []
+
+        jobs:
+          - job: PRBuild
+            displayName: "PR Build and Test"
+            pool:
+              vmImage: $(vmImageName)
+
+            steps:
+              - checkout: self
+
+              - task: Docker@2
+                displayName: "Build PR Image"
+                inputs:
+                  command: "build"
+                  dockerfile: "$(dockerfilePath)"
+                  tags: "pr-$(System.PullRequest.PullRequestNumber)-$(Build.BuildNumber)"
+                  buildContext: "$(Build.SourcesDirectory)"
+                  arguments: "--build-arg NODE_ENV=test"
+
+              - script: |
+                  # Run PR-specific tests
+                  docker run --rm \
+                    -e NODE_ENV=test \
+                    pr-$(System.PullRequest.PullRequestNumber)-$(Build.BuildNumber) \
+                    npm run test:pr
+                displayName: "Run PR Tests"
+
+              - task: Kubernetes@1
+                displayName: "Deploy PR Environment"
+                inputs:
+                  connectionType: "Kubernetes Service Connection"
+                  kubernetesServiceEndpoint: "k8s-development"
+                  namespace: "$(k8sNamespaceForPR)"
+                  command: "apply"
+                  useConfigurationFile: true
+                  configuration: "k8s/pr-environment.yaml"
+                  secretType: "dockerRegistry"
+                  containerRegistryType: "Azure Container Registry"
+
+              - script: |
+                  echo "PR Environment deployed at: https://pr-$(System.PullRequest.PullRequestNumber).dev.example.com"
+                displayName: "PR Environment Info"

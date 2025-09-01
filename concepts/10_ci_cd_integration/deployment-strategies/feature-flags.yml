@@ -1,0 +1,595 @@
+# 10_ci_cd_integration/deployment-strategies/feature-flags.yml
+
+# Feature Flag Deployment Strategy
+# Deploy features behind toggles for controlled rollouts
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-feature-flags
+  namespace: production
+  labels:
+    app: myapp
+    deployment-strategy: feature-flags
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+        deployment-strategy: feature-flags
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+    spec:
+      containers:
+        - name: app
+          image: myapp:latest
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: FEATURE_FLAGS_ENDPOINT
+              value: "http://feature-flag-service:8080"
+            - name: FEATURE_FLAGS_API_KEY
+              valueFrom:
+                secretRef:
+                  name: feature-flags-secret
+                  key: api-key
+            - name: DEPLOYMENT_TYPE
+              value: feature-flags
+            - name: UNLEASH_URL
+              value: "http://unleash-server:4242/api"
+            - name: UNLEASH_API_TOKEN
+              valueFrom:
+                secretRef:
+                  name: unleash-secret
+                  key: token
+            - name: LAUNCHDARKLY_SDK_KEY
+              valueFrom:
+                secretRef:
+                  name: launchdarkly-secret
+                  key: sdk-key
+            - name: SPLIT_API_KEY
+              valueFrom:
+                secretRef:
+                  name: split-secret
+                  key: api-key
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: feature-config
+              mountPath: /app/config
+              readOnly: true
+      volumes:
+        - name: feature-config
+          configMap:
+            name: feature-flags-config
+
+---
+# Feature Flags Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: feature-flags-config
+  namespace: production
+data:
+  features.json: |
+    {
+      "features": {
+        "new-ui": {
+          "enabled": false,
+          "rollout": 0,
+          "conditions": {
+            "userSegments": ["beta-users", "internal"],
+            "regions": ["us-east-1"],
+            "percentage": 10
+          },
+          "variants": {
+            "control": 50,
+            "treatment": 50
+          }
+        },
+        "enhanced-search": {
+          "enabled": true,
+          "rollout": 25,
+          "conditions": {
+            "userTypes": ["premium", "enterprise"],
+            "countries": ["US", "CA", "UK"]
+          }
+        },
+        "payment-gateway-v2": {
+          "enabled": false,
+          "rollout": 0,
+          "conditions": {
+            "userSegments": ["trusted-users"],
+            "minVersion": "2.1.0"
+          }
+        },
+        "real-time-notifications": {
+          "enabled": true,
+          "rollout": 75,
+          "conditions": {
+            "platforms": ["web", "mobile"],
+            "subscriptionTiers": ["pro", "enterprise"]
+          }
+        },
+        "experimental-algorithm": {
+          "enabled": false,
+          "rollout": 5,
+          "conditions": {
+            "userSegments": ["data-science-team"],
+            "experimentGroups": ["experiment-a"]
+          }
+        }
+      },
+      "segments": {
+        "beta-users": {
+          "conditions": {
+            "userAttributes": {
+              "betaTester": true
+            }
+          }
+        },
+        "internal": {
+          "conditions": {
+            "userAttributes": {
+              "company": "internal"
+            }
+          }
+        },
+        "trusted-users": {
+          "conditions": {
+            "userAttributes": {
+              "trustScore": {
+                "operator": ">=",
+                "value": 80
+              }
+            }
+          }
+        }
+      },
+      "experiments": {
+        "checkout-flow-optimization": {
+          "enabled": true,
+          "traffic": 20,
+          "variants": {
+            "control": 50,
+            "variant-a": 25,
+            "variant-b": 25
+          }
+        }
+      }
+    }
+
+  rollout-rules.yaml: |
+    rules:
+      - name: "Geographic Rollout"
+        conditions:
+          - type: "location"
+            values: ["US", "CA", "UK", "AU"]
+        actions:
+          - enable: ["new-ui", "enhanced-search"]
+          - percentage: 50
+      
+      - name: "User Tier Rollout"
+        conditions:
+          - type: "subscription"
+            values: ["premium", "enterprise"]
+        actions:
+          - enable: ["real-time-notifications"]
+          - percentage: 100
+      
+      - name: "Beta User Features"
+        conditions:
+          - type: "userSegment"
+            values: ["beta-users"]
+        actions:
+          - enable: ["new-ui", "experimental-algorithm"]
+          - percentage: 100
+      
+      - name: "Gradual Rollout"
+        schedule:
+          - time: "2024-01-01T00:00:00Z"
+            percentage: 10
+          - time: "2024-01-03T00:00:00Z"
+            percentage: 25
+          - time: "2024-01-05T00:00:00Z"
+            percentage: 50
+          - time: "2024-01-07T00:00:00Z"
+            percentage: 100
+        features: ["payment-gateway-v2"]
+
+---
+# Custom Feature Flag Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: feature-flag-service
+  namespace: production
+  labels:
+    app: feature-flag-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: feature-flag-service
+  template:
+    metadata:
+      labels:
+        app: feature-flag-service
+    spec:
+      containers:
+        - name: service
+          image: feature-flag-service:latest
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretRef:
+                  name: database-secret
+                  key: url
+            - name: REDIS_URL
+              value: "redis://redis-service:6379"
+            - name: LOG_LEVEL
+              value: "info"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+---
+# Feature Flag Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: feature-flag-service
+  namespace: production
+  labels:
+    app: feature-flag-service
+spec:
+  selector:
+    app: feature-flag-service
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  type: ClusterIP
+
+---
+# Unleash Feature Flag Server
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: unleash-server
+  namespace: production
+  labels:
+    app: unleash-server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: unleash-server
+  template:
+    metadata:
+      labels:
+        app: unleash-server
+    spec:
+      containers:
+        - name: unleash
+          image: unleashorg/unleash-server:latest
+          ports:
+            - containerPort: 4242
+              name: http
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretRef:
+                  name: unleash-db-secret
+                  key: url
+            - name: DATABASE_SSL
+              value: "false"
+            - name: UNLEASH_URL
+              value: "http://unleash-server:4242"
+            - name: LOG_LEVEL
+              value: "info"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+
+---
+# Unleash Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: unleash-server
+  namespace: production
+  labels:
+    app: unleash-server
+spec:
+  selector:
+    app: unleash-server
+  ports:
+    - port: 4242
+      targetPort: 4242
+      name: http
+  type: ClusterIP
+
+---
+# Feature Flag Dashboard
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: feature-flag-dashboard
+  namespace: production
+  labels:
+    app: feature-flag-dashboard
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: feature-flag-dashboard
+  template:
+    metadata:
+      labels:
+        app: feature-flag-dashboard
+    spec:
+      containers:
+        - name: dashboard
+          image: feature-flag-dashboard:latest
+          ports:
+            - containerPort: 3001
+              name: http
+          env:
+            - name: API_BASE_URL
+              value: "http://feature-flag-service:8080"
+            - name: UNLEASH_URL
+              value: "http://unleash-server:4242"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+
+---
+# Dashboard Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: feature-flag-dashboard
+  namespace: production
+  labels:
+    app: feature-flag-dashboard
+spec:
+  selector:
+    app: feature-flag-dashboard
+  ports:
+    - port: 80
+      targetPort: 3001
+      name: http
+  type: ClusterIP
+
+---
+# Feature Flag Secrets
+apiVersion: v1
+kind: Secret
+metadata:
+  name: feature-flags-secret
+  namespace: production
+type: Opaque
+stringData:
+  api-key: "your-feature-flag-api-key"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: unleash-secret
+  namespace: production
+type: Opaque
+stringData:
+  token: "your-unleash-api-token"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: launchdarkly-secret
+  namespace: production
+type: Opaque
+stringData:
+  sdk-key: "your-launchdarkly-sdk-key"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: split-secret
+  namespace: production
+type: Opaque
+stringData:
+  api-key: "your-split-api-key"
+
+---
+# Feature Flag Scripts ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: feature-flag-scripts
+  namespace: production
+data:
+  deploy-with-flags.sh: |
+    #!/bin/bash
+    set -e
+
+    NEW_IMAGE=$1
+    FEATURE_NAME=$2
+    ROLLOUT_PERCENTAGE=${3:-10}
+
+    if [[ -z "$NEW_IMAGE" || -z "$FEATURE_NAME" ]]; then
+        echo "Usage: $0 <new-image> <feature-name> [rollout-percentage]"
+        exit 1
+    fi
+
+    echo "Deploying with feature flag: $FEATURE_NAME at $ROLLOUT_PERCENTAGE%"
+
+    # Update deployment with new image
+    kubectl set image deployment/app-feature-flags app=$NEW_IMAGE -n production
+
+    # Wait for deployment
+    kubectl rollout status deployment/app-feature-flags -n production --timeout=300s
+
+    # Enable feature flag
+    curl -X POST http://feature-flag-service:8080/api/features/$FEATURE_NAME \
+      -H "Content-Type: application/json" \
+      -d "{\"enabled\": true, \"rollout\": $ROLLOUT_PERCENTAGE}"
+
+    echo "Feature $FEATURE_NAME deployed and enabled at $ROLLOUT_PERCENTAGE%"
+
+  rollout-feature.sh: |
+    #!/bin/bash
+    set -e
+
+    FEATURE_NAME=$1
+    NEW_PERCENTAGE=$2
+
+    if [[ -z "$FEATURE_NAME" || -z "$NEW_PERCENTAGE" ]]; then
+        echo "Usage: $0 <feature-name> <new-percentage>"
+        exit 1
+    fi
+
+    echo "Rolling out $FEATURE_NAME to $NEW_PERCENTAGE%"
+
+    # Update feature flag
+    curl -X PATCH http://feature-flag-service:8080/api/features/$FEATURE_NAME \
+      -H "Content-Type: application/json" \
+      -d "{\"rollout\": $NEW_PERCENTAGE}"
+
+    echo "Feature $FEATURE_NAME now at $NEW_PERCENTAGE%"
+
+  disable-feature.sh: |
+    #!/bin/bash
+    set -e
+
+    FEATURE_NAME=$1
+
+    if [[ -z "$FEATURE_NAME" ]]; then
+        echo "Usage: $0 <feature-name>"
+        exit 1
+    fi
+
+    echo "Disabling feature: $FEATURE_NAME"
+
+    # Disable feature flag
+    curl -X PATCH http://feature-flag-service:8080/api/features/$FEATURE_NAME \
+      -H "Content-Type: application/json" \
+      -d "{\"enabled\": false, \"rollout\": 0}"
+
+    echo "Feature $FEATURE_NAME disabled"
+
+  feature-status.sh: |
+    #!/bin/bash
+
+    echo "=== Feature Flag Status ==="
+
+    # Get all features
+    curl -s http://feature-flag-service:8080/api/features | jq .
+
+    echo ""
+    echo "Active Experiments:"
+    curl -s http://feature-flag-service:8080/api/experiments | jq .
+
+---
+# ServiceMonitor for Feature Flags
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: feature-flags-monitor
+  namespace: production
+  labels:
+    app: myapp
+spec:
+  selector:
+    matchLabels:
+      app: myapp
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+
+---
+# CronJob for Feature Flag Analytics
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: feature-flag-analytics
+  namespace: production
+spec:
+  schedule: "0 */6 * * *" # Every 6 hours
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: analytics
+              image: feature-flag-analytics:latest
+              env:
+                - name: FEATURE_FLAG_API
+                  value: "http://feature-flag-service:8080"
+                - name: ANALYTICS_DB_URL
+                  valueFrom:
+                    secretRef:
+                      name: analytics-db-secret
+                      key: url
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  echo "Running feature flag analytics..."
+                  python /app/analytics.py
+          restartPolicy: OnFailure

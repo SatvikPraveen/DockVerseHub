@@ -1,0 +1,384 @@
+# File: .github/workflows/release-automation.yml
+name: Automated Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g., v1.2.3)"
+        required: true
+        type: string
+      draft:
+        description: "Create as draft release"
+        required: false
+        type: boolean
+        default: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  validate-version:
+    name: Validate Release Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${{ github.ref_name }}"
+          fi
+
+          # Validate version format
+          if [[ ! $VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "❌ Invalid version format: $VERSION"
+            echo "Expected format: v1.2.3"
+            exit 1
+          fi
+
+          echo "version=${VERSION#v}" >> $GITHUB_OUTPUT
+          echo "tag=$VERSION" >> $GITHUB_OUTPUT
+          echo "✅ Version validated: $VERSION"
+
+  generate-changelog:
+    name: Generate Changelog
+    runs-on: ubuntu-latest
+    needs: [validate-version]
+    outputs:
+      changelog: ${{ steps.changelog.outputs.changelog }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          echo "📝 Generating changelog..."
+
+          # Get previous tag
+          PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -2 | tail -1)
+          CURRENT_TAG="${{ needs.validate-version.outputs.tag }}"
+
+          echo "Generating changelog from $PREVIOUS_TAG to $CURRENT_TAG"
+
+          # Create changelog
+          cat > RELEASE_CHANGELOG.md << EOF
+          # Release $CURRENT_TAG
+
+          ## 🚀 What's New
+
+          ### Features
+          $(git log --pretty=format:"- %s" $PREVIOUS_TAG..$CURRENT_TAG --grep="feat:" --grep="add:" | head -10)
+
+          ### Improvements
+          $(git log --pretty=format:"- %s" $PREVIOUS_TAG..$CURRENT_TAG --grep="improve:" --grep="enhance:" --grep="update:" | head -10)
+
+          ### Bug Fixes
+          $(git log --pretty=format:"- %s" $PREVIOUS_TAG..$CURRENT_TAG --grep="fix:" --grep="bug:" | head -10)
+
+          ### Documentation
+          $(git log --pretty=format:"- %s" $PREVIOUS_TAG..$CURRENT_TAG --grep="docs:" --grep="doc:" | head -10)
+
+          ## 📊 Project Statistics
+          - **Total Dockerfiles:** $(find . -name "Dockerfile*" -type f ! -path "./.git/*" | wc -l)
+          - **Docker Compose Files:** $(find . -name "docker-compose*.yml" -type f ! -path "./.git/*" | wc -l)
+          - **Labs:** $(find ./labs -maxdepth 1 -type d | wc -l | awk '{print $1-1}')
+          - **Concepts:** $(find ./concepts -maxdepth 1 -type d | wc -l | awk '{print $1-1}')
+          - **Lines of Code:** $(find . -name "*.py" -o -name "*.js" -o -name "*.yml" -o -name "*.yaml" ! -path "./.git/*" | xargs wc -l | tail -1 | awk '{print $1}')
+
+          ## 🔧 Breaking Changes
+          $(git log --pretty=format:"- %s" $PREVIOUS_TAG..$CURRENT_TAG --grep="BREAKING" | head -5)
+
+          ## 👥 Contributors
+          $(git log --pretty=format:"- @%an" $PREVIOUS_TAG..$CURRENT_TAG | sort -u | head -10)
+
+          ---
+
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREVIOUS_TAG...$CURRENT_TAG
+          EOF
+
+          # Output for GitHub
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          cat RELEASE_CHANGELOG.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Upload changelog
+        uses: actions/upload-artifact@v3
+        with:
+          name: release-changelog
+          path: RELEASE_CHANGELOG.md
+          retention-days: 90
+
+  build-release-artifacts:
+    name: Build Release Artifacts
+    runs-on: ubuntu-latest
+    needs: [validate-version]
+    strategy:
+      matrix:
+        artifact:
+          - name: documentation
+            path: docs/
+          - name: labs
+            path: labs/
+          - name: concepts
+            path: concepts/
+          - name: utilities
+            path: utilities/
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create release artifact
+        run: |
+          VERSION="${{ needs.validate-version.outputs.version }}"
+          ARTIFACT_NAME="dockversehub-${{ matrix.artifact.name }}-${VERSION}"
+
+          echo "📦 Creating $ARTIFACT_NAME.tar.gz"
+
+          if [ -d "${{ matrix.artifact.path }}" ]; then
+            tar -czf "${ARTIFACT_NAME}.tar.gz" "${{ matrix.artifact.path }}"
+            echo "✅ Created ${ARTIFACT_NAME}.tar.gz"
+            ls -lah "${ARTIFACT_NAME}.tar.gz"
+          else
+            echo "⚠️ Directory ${{ matrix.artifact.path }} not found"
+            touch "${ARTIFACT_NAME}.tar.gz"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: release-${{ matrix.artifact.name }}
+          path: "*.tar.gz"
+          retention-days: 90
+
+  build-docker-images:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    needs: [validate-version]
+    strategy:
+      matrix:
+        image:
+          - dockerfile: concepts/01_getting_started/Dockerfile
+            context: concepts/01_getting_started
+            name: getting-started
+          - dockerfile: labs/lab_01_simple_app/Dockerfile
+            context: labs/lab_01_simple_app
+            name: simple-app
+          - dockerfile: .devcontainer/Dockerfile
+            context: .devcontainer
+            name: devcontainer
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.image.name }}
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  security-scan-release:
+    name: Security Scan Release Artifacts
+    runs-on: ubuntu-latest
+    needs: [build-docker-images]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy security scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "sarif"
+          output: "release-security-scan.sarif"
+
+      - name: Upload security scan results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: "release-security-scan.sarif"
+
+      - name: Generate security report
+        run: |
+          echo "# 🔒 Release Security Report" > release-security-report.md
+          echo "Generated: $(date)" >> release-security-report.md
+          echo "Version: ${{ needs.validate-version.outputs.tag }}" >> release-security-report.md
+          echo "" >> release-security-report.md
+
+          echo "## Security Scan Results" >> release-security-report.md
+          trivy fs --format table . >> release-security-report.md || true
+
+          echo "" >> release-security-report.md
+          echo "## Recommendations" >> release-security-report.md
+          echo "- Review all HIGH and CRITICAL vulnerabilities" >> release-security-report.md
+          echo "- Update dependencies with known vulnerabilities" >> release-security-report.md
+          echo "- Verify no secrets are included in release artifacts" >> release-security-report.md
+
+      - name: Upload security report
+        uses: actions/upload-artifact@v3
+        with:
+          name: release-security-report
+          path: release-security-report.md
+          retention-days: 90
+
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs:
+      [
+        validate-version,
+        generate-changelog,
+        build-release-artifacts,
+        build-docker-images,
+        security-scan-release,
+      ]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: release-artifacts
+
+      - name: Prepare release assets
+        run: |
+          echo "📦 Preparing release assets..."
+          mkdir -p release-assets
+
+          # Collect all release artifacts
+          find release-artifacts -name "*.tar.gz" -exec cp {} release-assets/ \;
+          find release-artifacts -name "*.md" -exec cp {} release-assets/ \;
+
+          # Create comprehensive release package
+          VERSION="${{ needs.validate-version.outputs.version }}"
+          tar -czf "release-assets/dockversehub-complete-${VERSION}.tar.gz" \
+            --exclude='.git' \
+            --exclude='release-artifacts' \
+            --exclude='release-assets' \
+            .
+
+          echo "Release assets:"
+          ls -la release-assets/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.validate-version.outputs.tag }}
+          name: "DockVerseHub ${{ needs.validate-version.outputs.tag }}"
+          body: ${{ needs.generate-changelog.outputs.changelog }}
+          draft: ${{ github.event.inputs.draft || false }}
+          prerelease: false
+          files: release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-documentation:
+    name: Update Documentation
+    runs-on: ubuntu-latest
+    needs: [create-release]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update version references
+        run: |
+          VERSION="${{ needs.validate-version.outputs.version }}"
+
+          # Update version in documentation
+          find docs/ -name "*.md" -type f -exec sed -i "s/version: [0-9]\+\.[0-9]\+\.[0-9]\+/version: $VERSION/g" {} \; || true
+
+          # Update CHANGELOG.md
+          if [ ! -f CHANGELOG.md ]; then
+            echo "# Changelog" > CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+
+          # Add new version to changelog
+          sed -i "3i\\## [$VERSION] - $(date +%Y-%m-%d)\\n\\nSee [GitHub Release](https://github.com/${{ github.repository }}/releases/tag/v$VERSION) for details.\\n" CHANGELOG.md
+
+      - name: Commit documentation updates
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add docs/ CHANGELOG.md
+          git commit -m "📚 Update documentation for v${{ needs.validate-version.outputs.version }} [skip ci]" || exit 0
+          git push
+
+  post-release:
+    name: Post Release Tasks
+    runs-on: ubuntu-latest
+    needs: [create-release, update-documentation]
+    steps:
+      - name: Generate release summary
+        run: |
+          echo "# 🎉 Release Summary" > release-summary.md
+          echo "**Version:** ${{ needs.validate-version.outputs.tag }}" >> release-summary.md
+          echo "**Released:** $(date)" >> release-summary.md
+          echo "**Repository:** https://github.com/${{ github.repository }}" >> release-summary.md
+          echo "" >> release-summary.md
+
+          echo "## 📦 Release Artifacts" >> release-summary.md
+          echo "- Complete package (tar.gz)" >> release-summary.md
+          echo "- Documentation package" >> release-summary.md
+          echo "- Labs package" >> release-summary.md
+          echo "- Concepts package" >> release-summary.md
+          echo "- Utilities package" >> release-summary.md
+          echo "- Docker images (multi-arch)" >> release-summary.md
+          echo "" >> release-summary.md
+
+          echo "## 🔗 Links" >> release-summary.md
+          echo "- [Release Page](https://github.com/${{ github.repository }}/releases/tag/${{ needs.validate-version.outputs.tag }})" >> release-summary.md
+          echo "- [Docker Images](https://github.com/${{ github.repository }}/pkgs/container/dockversehub)" >> release-summary.md
+          echo "- [Documentation](https://github.com/${{ github.repository }}/tree/main/docs)" >> release-summary.md
+
+      - name: Upload release summary
+        uses: actions/upload-artifact@v3
+        with:
+          name: release-summary
+          path: release-summary.md
+          retention-days: 365

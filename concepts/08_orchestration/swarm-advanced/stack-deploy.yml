@@ -1,0 +1,479 @@
+# 08_orchestration/swarm-advanced/stack-deploy.yml
+
+version: '3.8'
+
+services:
+  # Frontend web application
+  frontend:
+    image: nginx:alpine
+    ports:
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: ingress
+    networks:
+      - frontend-network
+      - proxy-network
+    configs:
+      - source: nginx-config-v2
+        target: /etc/nginx/nginx.conf
+        mode: 0644
+    deploy:
+      mode: replicated
+      replicas: 3
+      placement:
+        constraints:
+          - node.role == worker
+          - node.labels.type == web
+        preferences:
+          - spread: node.labels.zone
+      update_config:
+        parallelism: 1
+        delay: 15s
+        failure_action: rollback
+        monitor: 60s
+        max_failure_ratio: 0.1
+        order: start-first
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: pause
+        monitor: 30s
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+        window: 300s
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+        reservations:
+          cpus: '0.5'
+          memory: 128M
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.frontend.rule=Host(`app.local`)"
+        - "traefik.http.services.frontend.loadbalancer.server.port=80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Backend API service
+  backend:
+    image: python:3.11-alpine
+    networks:
+      - backend-network
+      - database-network
+    secrets:
+      - source: db-credentials
+        target: db_password
+        mode: 0400
+      - source: jwt-secret
+        target: jwt_key
+        mode: 0400
+    configs:
+      - source: app-config-v1
+        target: /app/config.json
+        mode: 0644
+    environment:
+      - DATABASE_URL=postgresql://user@db:5432/appdb
+      - REDIS_URL=redis://cache:6379/0
+      - LOG_LEVEL=info
+      - ENVIRONMENT=production
+    command: |
+      sh -c 'pip install --no-cache-dir flask redis psycopg2-binary PyJWT &&
+             cat > /app/app.py << "EOF"
+from flask import Flask, jsonify, request
+import redis
+import json
+import os
+import jwt
+from datetime import datetime, timedelta
+
+app = Flask(__name__)
+
+# Load configurations
+with open("/app/config.json", "r") as f:
+    config = json.load(f)
+
+# Load secrets
+with open("/run/secrets/db_password", "r") as f:
+    db_password = f.read().strip()
+
+with open("/run/secrets/jwt_key", "r") as f:
+    jwt_secret = f.read().strip()
+
+# Redis connection
+r = redis.Redis.from_url(os.getenv("REDIS_URL"))
+
+@app.route("/health")
+def health():
+    try:
+        r.ping()
+        return jsonify({
+            "status": "healthy",
+            "timestamp": datetime.utcnow().isoformat(),
+            "version": config.get("version", "1.0.0"),
+            "environment": config.get("environment", "unknown")
+        })
+    except:
+        return jsonify({"status": "unhealthy"}), 503
+
+@app.route("/api/token")
+def get_token():
+    payload = {
+        "user_id": 1,
+        "exp": datetime.utcnow() + timedelta(hours=1)
+    }
+    token = jwt.encode(payload, jwt_secret, algorithm="HS256")
+    return jsonify({"token": token})
+
+@app.route("/api/data")
+def get_data():
+    cache_key = "data:latest"
+    cached = r.get(cache_key)
+    
+    if cached:
+        return jsonify(json.loads(cached))
+    
+    data = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "data": list(range(10)),
+        "cached": False
+    }
+    
+    r.setex(cache_key, 300, json.dumps(data))
+    return jsonify(data)
+
+@app.route("/api/metrics")
+def metrics():
+    return jsonify({
+        "requests_total": 1000,
+        "response_time_avg": 0.125,
+        "memory_usage": "85MB",
+        "cpu_usage": "15%"
+    })
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080, debug=False)
+EOF
+             python /app/app.py'
+    deploy:
+      mode: replicated
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+          - node.labels.type == api
+      update_config:
+        parallelism: 1
+        delay: 20s
+        failure_action: rollback
+        monitor: 60s
+      restart_policy:
+        condition: on-failure
+        delay: 15s
+        max_attempts: 3
+        window: 120s
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 512M
+        reservations:
+          cpus: '1.0'
+          memory: 256M
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.backend.rule=Host(`api.local`) || PathPrefix(`/api`)"
+        - "traefik.http.services.backend.loadbalancer.server.port=8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # Database service
+  database:
+    image: postgres:15-alpine
+    networks:
+      - database-network
+    secrets:
+      - source: db-credentials
+        target: postgres_password
+        mode: 0400
+    environment:
+      - POSTGRES_DB=appdb
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - database-data:/var/lib/postgresql/data
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+          - node.labels.storage == ssd
+      update_config:
+        parallelism: 1
+        delay: 60s
+        failure_action: pause
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 3
+        window: 600s
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d appdb"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Redis cache
+  cache:
+    image: redis:7-alpine
+    networks:
+      - database-network
+    command: |
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+    volumes:
+      - cache-data:/data
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == worker
+      update_config:
+        parallelism: 1
+        delay: 30s
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Load balancer / Proxy
+  proxy:
+    image: traefik:v3.0
+    ports:
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: host
+      - target: 443
+        published: 443
+        protocol: tcp
+        mode: host
+      - target: 8080
+        published: 8080
+        protocol: tcp
+        mode: host
+    networks:
+      - proxy-network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-data:/data
+    configs:
+      - source: traefik-config
+        target: /etc/traefik/traefik.yml
+        mode: 0644
+    command:
+      - --configfile=/etc/traefik/traefik.yml
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      update_config:
+        parallelism: 1
+        delay: 30s
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Monitoring service
+  monitoring:
+    image: prom/prometheus:v2.47.0
+    networks:
+      - monitoring-network
+    configs:
+      - source: prometheus-config
+        target: /etc/prometheus/prometheus.yml
+        mode: 0644
+    volumes:
+      - monitoring-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=365d'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      update_config:
+        parallelism: 1
+        delay: 60s
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.prometheus.rule=Host(`prometheus.local`)"
+        - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+
+  # Log aggregator
+  logs:
+    image: fluent/fluentd:v1.16-debian-1
+    networks:
+      - logging-network
+    ports:
+      - target: 24224
+        published: 24224
+        protocol: tcp
+        mode: host
+    configs:
+      - source: fluentd-config
+        target: /fluentd/etc/fluent.conf
+        mode: 0644
+    volumes:
+      - logs-data:/var/log/fluentd
+    deploy:
+      mode: global
+      placement:
+        constraints:
+          - node.platform.os == linux
+      update_config:
+        parallelism: 1
+        delay: 30s
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+
+networks:
+  frontend-network:
+    driver: overlay
+    attachable: true
+    
+  backend-network:
+    driver: overlay
+    
+  database-network:
+    driver: overlay
+    
+  proxy-network:
+    external: true
+    name: traefik-public
+    
+  monitoring-network:
+    driver: overlay
+    
+  logging-network:
+    driver: overlay
+
+volumes:
+  database-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/docker/data/postgres
+      
+  cache-data:
+    driver: local
+    
+  traefik-data:
+    driver: local
+    
+  monitoring-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/docker/data/prometheus
+      
+  logs-data:
+    driver: local
+
+secrets:
+  db-credentials:
+    external: true
+    name: db_password_v1
+    
+  jwt-secret:
+    external: true
+    name: jwt_secret_v1
+
+configs:
+  nginx-config-v2:
+    external: true
+    name: nginx_config_v2
+    
+  app-config-v1:
+    external: true
+    name: app_config_v1
+    
+  traefik-config:
+    external: true
+    name: traefik_config_v1
+    
+  prometheus-config:
+    external: true
+    name: prometheus_config_v1
+    
+  fluentd-config:
+    external: true
+    name: fluentd_config_v1

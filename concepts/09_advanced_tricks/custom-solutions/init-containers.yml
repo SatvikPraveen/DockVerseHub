@@ -1,0 +1,751 @@
+# 09_advanced_tricks/custom-solutions/init-containers.yml
+
+# Init Container Patterns
+# Advanced initialization patterns for containerized applications
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: init-scripts
+  namespace: default
+data:
+  database-setup.sh: |
+    #!/bin/bash
+    set -e
+    echo "Setting up database schema..."
+
+    # Wait for database to be ready
+    until pg_isready -h $DB_HOST -p $DB_PORT -U $DB_USER; do
+      echo "Waiting for database..."
+      sleep 2
+    done
+
+    # Run migrations
+    psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f /scripts/schema.sql
+    psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f /scripts/seed.sql
+
+    echo "Database setup completed"
+
+  config-templater.sh: |
+    #!/bin/bash
+    set -e
+    echo "Generating configuration files..."
+
+    # Template processing
+    envsubst < /templates/app.conf.template > /config/app.conf
+    envsubst < /templates/nginx.conf.template > /config/nginx.conf
+
+    # Validate configurations
+    nginx -t -c /config/nginx.conf
+
+    echo "Configuration generation completed"
+
+  dependency-checker.sh: |
+    #!/bin/bash
+    set -e
+    echo "Checking service dependencies..."
+
+    # Check database connectivity
+    if ! nc -z $DB_HOST $DB_PORT; then
+      echo "Database not available at $DB_HOST:$DB_PORT"
+      exit 1
+    fi
+
+    # Check Redis connectivity
+    if ! nc -z $REDIS_HOST $REDIS_PORT; then
+      echo "Redis not available at $REDIS_HOST:$REDIS_PORT"
+      exit 1
+    fi
+
+    # Check external API
+    if ! curl -f --max-time 10 $EXTERNAL_API_URL/health; then
+      echo "External API not available at $EXTERNAL_API_URL"
+      exit 1
+    fi
+
+    echo "All dependencies are available"
+
+  security-setup.sh: |
+    #!/bin/bash
+    set -e
+    echo "Setting up security configurations..."
+
+    # Generate SSL certificates if not present
+    if [ ! -f /certs/server.crt ]; then
+      openssl req -new -x509 -key /certs/server.key -out /certs/server.crt -days 365 \
+        -subj "/C=US/ST=CA/L=SF/O=Company/CN=localhost"
+    fi
+
+    # Setup file permissions
+    chmod 600 /certs/server.key
+    chmod 644 /certs/server.crt
+
+    # Create service account
+    if ! getent passwd appuser > /dev/null; then
+      adduser --system --group --no-create-home appuser
+    fi
+
+    echo "Security setup completed"
+
+---
+# Basic Init Container Example
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp-with-init
+  namespace: default
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: webapp
+  template:
+    metadata:
+      labels:
+        app: webapp
+    spec:
+      initContainers:
+        # Database migration init container
+        - name: db-migration
+          image: postgres:15-alpine
+          env:
+            - name: DB_HOST
+              value: "postgres-service"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: password
+            - name: DB_NAME
+              value: "myapp"
+          command: ["/bin/bash"]
+          args: ["/scripts/database-setup.sh"]
+          volumeMounts:
+            - name: init-scripts
+              mountPath: /scripts
+            - name: db-schema
+              mountPath: /scripts/schema.sql
+              subPath: schema.sql
+            - name: db-schema
+              mountPath: /scripts/seed.sql
+              subPath: seed.sql
+
+        # Configuration generation init container
+        - name: config-generator
+          image: alpine:latest
+          env:
+            - name: APP_ENV
+              value: "production"
+            - name: APP_PORT
+              value: "3000"
+            - name: DB_HOST
+              value: "postgres-service"
+            - name: REDIS_HOST
+              value: "redis-service"
+          command: ["/bin/bash"]
+          args: ["/scripts/config-templater.sh"]
+          volumeMounts:
+            - name: init-scripts
+              mountPath: /scripts
+            - name: config-templates
+              mountPath: /templates
+            - name: generated-config
+              mountPath: /config
+
+        # Dependency checker init container
+        - name: dependency-check
+          image: alpine:latest
+          env:
+            - name: DB_HOST
+              value: "postgres-service"
+            - name: DB_PORT
+              value: "5432"
+            - name: REDIS_HOST
+              value: "redis-service"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: EXTERNAL_API_URL
+              value: "https://api.external.com"
+          command: ["/bin/bash"]
+          args: ["/scripts/dependency-checker.sh"]
+          volumeMounts:
+            - name: init-scripts
+              mountPath: /scripts
+
+      containers:
+        - name: webapp
+          image: myapp:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: CONFIG_PATH
+              value: "/etc/config/app.conf"
+          volumeMounts:
+            - name: generated-config
+              mountPath: /etc/config
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+      volumes:
+        - name: init-scripts
+          configMap:
+            name: init-scripts
+            defaultMode: 0755
+        - name: config-templates
+          configMap:
+            name: config-templates
+        - name: db-schema
+          configMap:
+            name: db-schema
+        - name: generated-config
+          emptyDir: {}
+
+---
+# Advanced Multi-Stage Init Pattern
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: complex-app-with-init
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: complex-app
+  template:
+    metadata:
+      labels:
+        app: complex-app
+    spec:
+      initContainers:
+        # Stage 1: Security and certificates
+        - name: security-init
+          image: alpine/openssl:latest
+          command: ["/bin/bash"]
+          args: ["/scripts/security-setup.sh"]
+          volumeMounts:
+            - name: init-scripts
+              mountPath: /scripts
+            - name: certificates
+              mountPath: /certs
+          securityContext:
+            runAsUser: 0
+            capabilities:
+              add: ["CHOWN", "DAC_OVERRIDE"]
+
+        # Stage 2: Asset compilation and optimization
+        - name: asset-builder
+          image: node:18-alpine
+          workingDir: /app
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Building and optimizing assets..."
+              npm ci --only=production
+              npm run build
+              npm run optimize
+              cp -r dist/* /assets/
+              echo "Assets built and copied"
+          volumeMounts:
+            - name: app-source
+              mountPath: /app
+            - name: compiled-assets
+              mountPath: /assets
+
+        # Stage 3: Data seeding and cache warming
+        - name: data-seeder
+          image: redis:7-alpine
+          env:
+            - name: REDIS_HOST
+              value: "redis-service"
+            - name: REDIS_PORT
+              value: "6379"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Seeding cache data..."
+
+              # Wait for Redis
+              until redis-cli -h $REDIS_HOST -p $REDIS_PORT ping; do
+                sleep 1
+              done
+
+              # Seed cache with initial data
+              redis-cli -h $REDIS_HOST -p $REDIS_PORT HMSET app:config \
+                version "1.0.0" \
+                environment "production" \
+                debug "false"
+
+              # Preload frequent queries
+              redis-cli -h $REDIS_HOST -p $REDIS_PORT SET cache:popular_items "$(cat /data/popular_items.json)"
+
+              echo "Cache seeding completed"
+          volumeMounts:
+            - name: seed-data
+              mountPath: /data
+
+        # Stage 4: Health check and validation
+        - name: validation
+          image: curlimages/curl:latest
+          env:
+            - name: VALIDATION_ENDPOINT
+              value: "http://validation-service/validate"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Running pre-startup validation..."
+
+              # Validate configuration
+              if [ ! -f /config/app.conf ]; then
+                echo "Configuration file missing"
+                exit 1
+              fi
+
+              # Validate certificates
+              if [ ! -f /certs/server.crt ]; then
+                echo "SSL certificate missing"
+                exit 1
+              fi
+
+              # Validate external dependencies
+              curl -f --max-time 30 $VALIDATION_ENDPOINT
+
+              echo "Validation completed successfully"
+          volumeMounts:
+            - name: generated-config
+              mountPath: /config
+            - name: certificates
+              mountPath: /certs
+
+      containers:
+        - name: app
+          image: complex-app:latest
+          ports:
+            - containerPort: 8443
+          env:
+            - name: CONFIG_PATH
+              value: "/etc/config"
+            - name: ASSETS_PATH
+              value: "/var/www/assets"
+            - name: CERT_PATH
+              value: "/etc/certs"
+          volumeMounts:
+            - name: generated-config
+              mountPath: /etc/config
+            - name: compiled-assets
+              mountPath: /var/www/assets
+            - name: certificates
+              mountPath: /etc/certs
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 45
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+      volumes:
+        - name: init-scripts
+          configMap:
+            name: init-scripts
+            defaultMode: 0755
+        - name: config-templates
+          configMap:
+            name: config-templates
+        - name: app-source
+          configMap:
+            name: app-source
+        - name: seed-data
+          configMap:
+            name: seed-data
+        - name: generated-config
+          emptyDir: {}
+        - name: compiled-assets
+          emptyDir: {}
+        - name: certificates
+          emptyDir: {}
+
+---
+# Init Container with Persistent Volume Setup
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: database-with-init
+  namespace: default
+spec:
+  replicas: 1
+  serviceName: database-service
+  selector:
+    matchLabels:
+      app: database
+  template:
+    metadata:
+      labels:
+        app: database
+    spec:
+      initContainers:
+        # Volume setup and permissions
+        - name: volume-setup
+          image: alpine:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Setting up data directory permissions..."
+
+              # Create necessary directories
+              mkdir -p /data/postgres
+              mkdir -p /data/logs
+              mkdir -p /data/backup
+
+              # Set ownership and permissions
+              chown -R 999:999 /data/postgres
+              chmod 700 /data/postgres
+
+              # Create backup directory with proper permissions
+              chown -R 999:999 /data/backup
+              chmod 755 /data/backup
+
+              echo "Volume setup completed"
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /data
+
+        # Database initialization
+        - name: db-init
+          image: postgres:15-alpine
+          env:
+            - name: POSTGRES_DB
+              value: "myapp"
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: password
+            - name: PGDATA
+              value: "/data/postgres"
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              # Initialize database if not exists
+              if [ ! -s "$PGDATA/PG_VERSION" ]; then
+                echo "Initializing new PostgreSQL database..."
+                initdb --username="$POSTGRES_USER" --pwfile=<(echo "$POSTGRES_PASSWORD")
+                
+                # Start temporary PostgreSQL instance
+                pg_ctl start -D "$PGDATA" -l /tmp/postgres.log -w
+                
+                # Create database and run initial setup
+                createdb "$POSTGRES_DB"
+                psql -d "$POSTGRES_DB" -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
+                psql -d "$POSTGRES_DB" -f /init-sql/schema.sql
+                
+                # Stop temporary instance
+                pg_ctl stop -D "$PGDATA" -m fast
+                
+                echo "Database initialization completed"
+              else
+                echo "Database already initialized"
+              fi
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /data
+            - name: init-sql
+              mountPath: /init-sql
+
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          env:
+            - name: POSTGRES_DB
+              value: "myapp"
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: password
+            - name: PGDATA
+              value: "/data/postgres"
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /data
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - $(POSTGRES_USER)
+                - -d
+                - $(POSTGRES_DB)
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - $(POSTGRES_USER)
+                - -d
+                - $(POSTGRES_DB)
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+      volumes:
+        - name: init-sql
+          configMap:
+            name: postgres-init-sql
+
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+
+---
+# Init Container with External Service Registration
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-with-registration
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: service-app
+  template:
+    metadata:
+      labels:
+        app: service-app
+    spec:
+      initContainers:
+        # Service discovery registration
+        - name: service-registration
+          image: alpine/curl:latest
+          env:
+            - name: CONSUL_ENDPOINT
+              value: "http://consul:8500"
+            - name: SERVICE_NAME
+              value: "my-service"
+            - name: SERVICE_PORT
+              value: "8080"
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Registering service with Consul..."
+
+              # Wait for Consul to be available
+              until curl -f $CONSUL_ENDPOINT/v1/status/leader; do
+                echo "Waiting for Consul..."
+                sleep 5
+              done
+
+              # Register service
+              curl -X PUT $CONSUL_ENDPOINT/v1/agent/service/register \
+                -d "{
+                  \"ID\": \"$SERVICE_NAME-$HOSTNAME\",
+                  \"Name\": \"$SERVICE_NAME\",
+                  \"Address\": \"$POD_IP\",
+                  \"Port\": $SERVICE_PORT,
+                  \"Check\": {
+                    \"HTTP\": \"http://$POD_IP:$SERVICE_PORT/health\",
+                    \"Interval\": \"10s\"
+                  }
+                }"
+
+              echo "Service registration completed"
+
+        # Configuration fetching from external service
+        - name: config-fetcher
+          image: alpine/curl:latest
+          env:
+            - name: CONFIG_SERVICE_URL
+              value: "https://config.example.com"
+            - name: SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: service-secret
+                  key: token
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Fetching configuration from external service..."
+
+              # Fetch configuration
+              curl -H "Authorization: Bearer $SERVICE_TOKEN" \
+                   -o /config/app.json \
+                   $CONFIG_SERVICE_URL/api/config/my-service
+
+              # Validate configuration
+              if [ ! -s /config/app.json ]; then
+                echo "Failed to fetch configuration"
+                exit 1
+              fi
+
+              echo "Configuration fetched successfully"
+          volumeMounts:
+            - name: fetched-config
+              mountPath: /config
+
+      containers:
+        - name: app
+          image: service-app:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: CONFIG_FILE
+              value: "/etc/config/app.json"
+          volumeMounts:
+            - name: fetched-config
+              mountPath: /etc/config
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+      volumes:
+        - name: fetched-config
+          emptyDir: {}
+
+---
+# Supporting ConfigMaps and Secrets
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-templates
+  namespace: default
+data:
+  app.conf.template: |
+    server {
+        listen ${APP_PORT};
+        server_name localhost;
+        
+        location / {
+            proxy_pass http://backend;
+            proxy_set_header Host $host;
+        }
+        
+        location /health {
+            access_log off;
+            return 200 "healthy\n";
+        }
+    }
+
+  nginx.conf.template: |
+    upstream backend {
+        server ${DB_HOST}:${DB_PORT};
+    }
+
+    server {
+        listen 80;
+        root /var/www/html;
+        index index.html;
+    }
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-schema
+  namespace: default
+data:
+  schema.sql: |
+    CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(255) UNIQUE NOT NULL,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+        id VARCHAR(255) PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP NOT NULL
+    );
+
+  seed.sql: |
+    INSERT INTO users (username, email) VALUES 
+    ('admin', 'admin@example.com'),
+    ('user', 'user@example.com')
+    ON CONFLICT (username) DO NOTHING;
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-secret
+  namespace: default
+type: Opaque
+stringData:
+  username: "myapp_user"
+  password: "secure_password_123"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: service-secret
+  namespace: default
+type: Opaque
+stringData:
+  token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."

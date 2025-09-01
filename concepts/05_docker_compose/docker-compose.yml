@@ -1,0 +1,163 @@
+# File Location: concepts/05_docker_compose/docker-compose.yml
+# Multi-container app example
+
+version: "3.8"
+
+services:
+  # Web application
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: web-service
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://user:password@database:5432/myapp
+      - REDIS_URL=redis://redis:6379
+      - SESSION_SECRET=your-secret-key
+    volumes:
+      - ./src:/app/src
+      - ./public:/app/public
+      - node_modules:/app/node_modules
+    networks:
+      - app-network
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  # Database
+  database:
+    image: postgres:13-alpine
+    container_name: database-service
+    environment:
+      POSTGRES_DB: myapp
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d myapp"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Redis cache
+  redis:
+    image: redis:6-alpine
+    container_name: redis-service
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - app-network
+    command: redis-server /usr/local/etc/redis/redis.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # Background worker
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: worker-service
+    environment:
+      - DATABASE_URL=postgresql://user:password@database:5432/myapp
+      - REDIS_URL=redis://redis:6379
+      - WORKER_CONCURRENCY=4
+    volumes:
+      - ./src:/app/src
+    networks:
+      - app-network
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - static-files:/var/www/html
+    networks:
+      - app-network
+    depends_on:
+      - web
+    restart: unless-stopped
+
+  # Log aggregator
+  logstash:
+    image: logstash:7.15.2
+    container_name: logstash-service
+    volumes:
+      - ./logstash/config:/usr/share/logstash/config:ro
+      - ./logs:/usr/share/logstash/logs
+    networks:
+      - app-network
+    environment:
+      - "LS_JAVA_OPTS=-Xmx256m -Xms256m"
+    depends_on:
+      - web
+      - database
+
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  node_modules:
+    driver: local
+  static-files:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
+# Usage commands:
+#
+# Start all services:
+# docker-compose up -d
+#
+# Build and start:
+# docker-compose up --build
+#
+# Start specific services:
+# docker-compose up web database
+#
+# View logs:
+# docker-compose logs -f web
+#
+# Scale services:
+# docker-compose up --scale worker=3
+#
+# Stop services:
+# docker-compose down
+#
+# Stop and remove volumes:
+# docker-compose down -v

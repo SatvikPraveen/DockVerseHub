@@ -1,0 +1,30 @@
+# File Location: labs/lab_02_multi_container_compose/api/requirements.txt
+
+# Flask and extensions
+Flask==3.0.0
+Flask-CORS==4.0.0
+Flask-SQLAlchemy==3.1.1
+Flask-Migrate==4.0.5
+
+# Database
+psycopg2-binary==2.9.9
+SQLAlchemy==2.0.23
+
+# Redis
+redis==5.0.1
+
+# HTTP client
+requests==2.31.0
+
+# Utilities
+python-dotenv==1.0.0
+
+# Development and testing
+pytest==7.4.3
+pytest-flask==1.3.0
+
+# Production server
+gunicorn==21.2.0
+
+# Monitoring
+prometheus-client==0.19.0

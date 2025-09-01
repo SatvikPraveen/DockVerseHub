@@ -1,0 +1,1189 @@
+# 09_advanced_tricks/custom-solutions/data-processing.yml
+
+# Data Processing Pipeline Patterns
+# Streaming data processing, batch processing, and real-time analytics
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-stream-processor
+  namespace: default
+  labels:
+    app: stream-processor
+    component: kafka
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: stream-processor
+  template:
+    metadata:
+      labels:
+        app: stream-processor
+    spec:
+      containers:
+        - name: stream-processor
+          image: confluentinc/cp-kafka-streams-examples:latest
+          env:
+            - name: KAFKA_BROKERS
+              value: "kafka-cluster:9092"
+            - name: SCHEMA_REGISTRY_URL
+              value: "http://schema-registry:8081"
+            - name: APPLICATION_ID
+              value: "stream-processor"
+            - name: INPUT_TOPIC
+              value: "raw-events"
+            - name: OUTPUT_TOPIC
+              value: "processed-events"
+            - name: JAVA_OPTS
+              value: "-Xms512m -Xmx1g"
+          ports:
+            - containerPort: 8080
+              name: metrics
+          command: ["/bin/bash"]
+          args:
+            - -c
+            - |
+              cat > /app/StreamProcessor.java << 'EOF'
+              import org.apache.kafka.streams.KafkaStreams;
+              import org.apache.kafka.streams.StreamsBuilder;
+              import org.apache.kafka.streams.StreamsConfig;
+              import org.apache.kafka.streams.kstream.KStream;
+              import org.apache.kafka.streams.kstream.KTable;
+              import org.apache.kafka.streams.kstream.TimeWindows;
+              import org.apache.kafka.streams.kstream.Windowed;
+              import org.apache.kafka.common.serialization.Serdes;
+              import com.fasterxml.jackson.databind.JsonNode;
+              import com.fasterxml.jackson.databind.ObjectMapper;
+
+              import java.time.Duration;
+              import java.util.Properties;
+              import java.util.concurrent.CountDownLatch;
+
+              public class StreamProcessor {
+                  private static final ObjectMapper MAPPER = new ObjectMapper();
+                  
+                  public static void main(String[] args) {
+                      Properties props = new Properties();
+                      props.put(StreamsConfig.APPLICATION_ID_CONFIG, System.getenv("APPLICATION_ID"));
+                      props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, System.getenv("KAFKA_BROKERS"));
+                      props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass());
+                      props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass());
+                      
+                      StreamsBuilder builder = new StreamsBuilder();
+                      
+                      // Input stream
+                      KStream<String, String> rawEvents = builder.stream(System.getenv("INPUT_TOPIC"));
+                      
+                      // Process and enrich events
+                      KStream<String, String> processedEvents = rawEvents
+                          .filter((key, value) -> value != null)
+                          .mapValues(value -> {
+                              try {
+                                  JsonNode event = MAPPER.readTree(value);
+                                  // Add processing timestamp
+                                  ((ObjectNode) event).put("processed_at", System.currentTimeMillis());
+                                  // Add enrichment data
+                                  ((ObjectNode) event).put("processor_id", System.getenv("HOSTNAME"));
+                                  return MAPPER.writeValueAsString(event);
+                              } catch (Exception e) {
+                                  System.err.println("Error processing event: " + e.getMessage());
+                                  return value;
+                              }
+                          });
+                      
+                      // Windowed aggregations
+                      KTable<Windowed<String>, Long> eventCounts = rawEvents
+                          .selectKey((key, value) -> {
+                              try {
+                                  JsonNode event = MAPPER.readTree(value);
+                                  return event.get("event_type").asText();
+                              } catch (Exception e) {
+                                  return "unknown";
+                              }
+                          })
+                          .groupByKey()
+                          .windowedBy(TimeWindows.of(Duration.ofMinutes(5)))
+                          .count();
+                      
+                      // Output streams
+                      processedEvents.to(System.getenv("OUTPUT_TOPIC"));
+                      eventCounts.toStream().map((key, value) -> 
+                          KeyValue.pair(key.key(), "{"
+                              + "\"event_type\":\"" + key.key() + "\","
+                              + "\"window_start\":" + key.window().start() + ","
+                              + "\"window_end\":" + key.window().end() + ","
+                              + "\"count\":" + value
+                              + "}")
+                      ).to("event-counts");
+                      
+                      KafkaStreams streams = new KafkaStreams(builder.build(), props);
+                      CountDownLatch latch = new CountDownLatch(1);
+                      
+                      Runtime.getRuntime().addShutdownHook(new Thread("shutdown-hook") {
+                          @Override
+                          public void run() {
+                              streams.close();
+                              latch.countDown();
+                          }
+                      });
+                      
+                      try {
+                          streams.start();
+                          latch.await();
+                      } catch (Throwable e) {
+                          System.exit(1);
+                      }
+                      System.exit(0);
+                  }
+              }
+              EOF
+
+              # Compile and run the stream processor
+              javac -cp "/usr/share/java/kafka/*" /app/StreamProcessor.java
+              java -cp "/usr/share/java/kafka/*:/app" StreamProcessor
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+---
+# Apache Spark Data Processing
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-data-processor
+  namespace: default
+  labels:
+    app: spark-processor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spark-processor
+  template:
+    metadata:
+      labels:
+        app: spark-processor
+    spec:
+      containers:
+        - name: spark-driver
+          image: bitnami/spark:3.4
+          env:
+            - name: SPARK_MODE
+              value: master
+            - name: SPARK_MASTER_HOST
+              value: "0.0.0.0"
+            - name: SPARK_MASTER_PORT
+              value: "7077"
+            - name: SPARK_MASTER_WEBUI_PORT
+              value: "8080"
+            - name: JAVA_OPTS
+              value: "-Xms1g -Xmx2g"
+          ports:
+            - containerPort: 7077
+              name: spark-master
+            - containerPort: 8080
+              name: web-ui
+          command: ["/opt/bitnami/scripts/spark/entrypoint.sh"]
+          args: ["/opt/bitnami/scripts/spark/run.sh"]
+          volumeMounts:
+            - name: spark-config
+              mountPath: /opt/spark/conf
+            - name: data-processing-scripts
+              mountPath: /opt/spark/scripts
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+
+        - name: data-processor
+          image: python:3.9-slim
+          env:
+            - name: SPARK_MASTER_URL
+              value: "spark://localhost:7077"
+            - name: DATA_SOURCE_URL
+              value: "jdbc:postgresql://postgres:5432/analytics"
+            - name: OUTPUT_PATH
+              value: "/data/processed"
+          command: ["/bin/bash"]
+          args:
+            - -c
+            - |
+              pip install pyspark pandas numpy scikit-learn boto3
+
+              cat > /app/data_processor.py << 'EOF'
+              from pyspark.sql import SparkSession
+              from pyspark.sql.functions import *
+              from pyspark.sql.types import *
+              from pyspark.ml.feature import VectorAssembler
+              from pyspark.ml.clustering import KMeans
+              from pyspark.ml.evaluation import ClusteringEvaluator
+              import os
+
+              def create_spark_session():
+                  return SparkSession.builder \
+                      .appName("DataProcessor") \
+                      .master(os.environ.get('SPARK_MASTER_URL', 'local[*]')) \
+                      .config("spark.sql.adaptive.enabled", "true") \
+                      .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
+                      .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
+                      .getOrCreate()
+
+              def load_data(spark):
+                  """Load data from various sources"""
+                  # Load from database
+                  db_df = spark.read \
+                      .format("jdbc") \
+                      .option("url", os.environ['DATA_SOURCE_URL']) \
+                      .option("dbtable", "user_events") \
+                      .option("user", "analytics") \
+                      .option("password", "password") \
+                      .load()
+                  
+                  # Load from files
+                  files_df = spark.read \
+                      .option("header", "true") \
+                      .option("inferSchema", "true") \
+                      .csv("/data/input/*.csv")
+                  
+                  return db_df, files_df
+
+              def process_data(spark, db_df, files_df):
+                  """Process and transform data"""
+                  
+                  # Data cleaning and transformation
+                  cleaned_df = db_df \
+                      .filter(col("user_id").isNotNull()) \
+                      .filter(col("event_time") > "2023-01-01") \
+                      .withColumn("event_date", to_date(col("event_time"))) \
+                      .withColumn("hour_of_day", hour(col("event_time")))
+                  
+                  # Feature engineering
+                  user_features = cleaned_df \
+                      .groupBy("user_id") \
+                      .agg(
+                          count("event_id").alias("total_events"),
+                          countDistinct("event_type").alias("unique_event_types"),
+                          avg("session_duration").alias("avg_session_duration"),
+                          max("event_time").alias("last_activity")
+                      )
+                  
+                  # Time-based aggregations
+                  hourly_stats = cleaned_df \
+                      .groupBy("hour_of_day", "event_type") \
+                      .agg(
+                          count("*").alias("event_count"),
+                          avg("session_duration").alias("avg_duration")
+                      ) \
+                      .orderBy("hour_of_day", "event_type")
+                  
+                  return user_features, hourly_stats
+
+              def run_ml_clustering(spark, user_features):
+                  """Run machine learning clustering"""
+                  
+                  # Prepare features for ML
+                  feature_cols = ["total_events", "unique_event_types", "avg_session_duration"]
+                  assembler = VectorAssembler(inputCols=feature_cols, outputCol="features")
+                  ml_df = assembler.transform(user_features)
+                  
+                  # K-means clustering
+                  kmeans = KMeans(k=5, seed=42, featuresCol="features", predictionCol="cluster")
+                  model = kmeans.fit(ml_df)
+                  
+                  # Make predictions
+                  predictions = model.transform(ml_df)
+                  
+                  # Evaluate clustering
+                  evaluator = ClusteringEvaluator(featuresCol="features", predictionCol="cluster")
+                  silhouette = evaluator.evaluate(predictions)
+                  print(f"Silhouette Score: {silhouette}")
+                  
+                  return predictions, model
+
+              def save_results(user_features, hourly_stats, predictions):
+                  """Save processed results"""
+                  output_path = os.environ.get('OUTPUT_PATH', '/data/processed')
+                  
+                  # Save as Parquet (efficient for analytics)
+                  user_features.write.mode('overwrite').parquet(f"{output_path}/user_features")
+                  hourly_stats.write.mode('overwrite').parquet(f"{output_path}/hourly_stats")
+                  predictions.write.mode('overwrite').parquet(f"{output_path}/user_clusters")
+                  
+                  # Save summary statistics
+                  summary_stats = {
+                      "total_users": user_features.count(),
+                      "total_hourly_records": hourly_stats.count(),
+                      "cluster_distribution": predictions.groupBy("cluster").count().collect()
+                  }
+                  
+                  # Write summary as JSON
+                  with open(f"{output_path}/summary.json", "w") as f:
+                      import json
+                      json.dump(summary_stats, f, indent=2, default=str)
+
+              def main():
+                  spark = create_spark_session()
+                  
+                  try:
+                      print("Starting data processing pipeline...")
+                      
+                      # Load data
+                      db_df, files_df = load_data(spark)
+                      print(f"Loaded {db_df.count()} records from database")
+                      
+                      # Process data
+                      user_features, hourly_stats = process_data(spark, db_df, files_df)
+                      
+                      # Run ML clustering
+                      predictions, model = run_ml_clustering(spark, user_features)
+                      
+                      # Save results
+                      save_results(user_features, hourly_stats, predictions)
+                      
+                      print("Data processing pipeline completed successfully!")
+                      
+                  except Exception as e:
+                      print(f"Error in data processing: {e}")
+                      raise
+                  finally:
+                      spark.stop()
+
+              if __name__ == "__main__":
+                  main()
+              EOF
+
+              # Run the data processing job
+              python /app/data_processor.py
+          volumeMounts:
+            - name: data-processing-scripts
+              mountPath: /app
+            - name: input-data
+              mountPath: /data/input
+            - name: output-data
+              mountPath: /data/processed
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+
+      volumes:
+        - name: spark-config
+          configMap:
+            name: spark-config
+        - name: data-processing-scripts
+          configMap:
+            name: data-processing-scripts
+        - name: input-data
+          persistentVolumeClaim:
+            claimName: input-data-pvc
+        - name: output-data
+          persistentVolumeClaim:
+            claimName: output-data-pvc
+
+---
+# Real-time Analytics with ClickHouse
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clickhouse-analytics
+  namespace: default
+spec:
+  serviceName: clickhouse
+  replicas: 3
+  selector:
+    matchLabels:
+      app: clickhouse
+  template:
+    metadata:
+      labels:
+        app: clickhouse
+    spec:
+      containers:
+        - name: clickhouse
+          image: clickhouse/clickhouse-server:latest
+          env:
+            - name: CLICKHOUSE_USER
+              value: "analytics"
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: password
+            - name: CLICKHOUSE_DB
+              value: "analytics"
+          ports:
+            - containerPort: 8123
+              name: http
+            - containerPort: 9000
+              name: native
+            - containerPort: 9009
+              name: inter-server
+          volumeMounts:
+            - name: clickhouse-data
+              mountPath: /var/lib/clickhouse
+            - name: clickhouse-config
+              mountPath: /etc/clickhouse-server/config.d
+            - name: clickhouse-users
+              mountPath: /etc/clickhouse-server/users.d
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "500m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 8123
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 8123
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+        - name: clickhouse-init
+          image: clickhouse/clickhouse-client:latest
+          command: ["/bin/bash"]
+          args:
+            - -c
+            - |
+              # Wait for ClickHouse to be ready
+              until clickhouse-client --host localhost --query "SELECT 1"; do
+                echo "Waiting for ClickHouse to be ready..."
+                sleep 2
+              done
+
+              # Create analytics tables
+              clickhouse-client --host localhost --multiquery << 'EOF'
+
+              -- Events table for real-time analytics
+              CREATE TABLE IF NOT EXISTS events (
+                  event_id String,
+                  user_id String,
+                  event_type String,
+                  event_time DateTime64(3),
+                  session_id String,
+                  properties String,
+                  device_type String,
+                  country String,
+                  city String,
+                  processed_at DateTime64(3) DEFAULT now64()
+              ) ENGINE = MergeTree()
+              PARTITION BY toYYYYMMDD(event_time)
+              ORDER BY (event_type, user_id, event_time)
+              TTL event_time + INTERVAL 1 YEAR;
+
+              -- User sessions materialized view
+              CREATE MATERIALIZED VIEW IF NOT EXISTS user_sessions_mv
+              ENGINE = SummingMergeTree()
+              PARTITION BY toYYYYMM(session_date)
+              ORDER BY (user_id, session_date, session_id)
+              AS SELECT
+                  user_id,
+                  session_id,
+                  toDate(min(event_time)) as session_date,
+                  min(event_time) as session_start,
+                  max(event_time) as session_end,
+                  count() as event_count,
+                  countDistinct(event_type) as unique_event_types,
+                  max(event_time) - min(event_time) as session_duration_ms
+              FROM events
+              GROUP BY user_id, session_id;
+
+              -- Real-time metrics materialized view
+              CREATE MATERIALIZED VIEW IF NOT EXISTS realtime_metrics_mv
+              ENGINE = SummingMergeTree()
+              PARTITION BY toYYYYMMDDhhmm(event_minute)
+              ORDER BY (event_type, event_minute)
+              AS SELECT
+                  event_type,
+                  toStartOfMinute(event_time) as event_minute,
+                  count() as event_count,
+                  countDistinct(user_id) as unique_users,
+                  countDistinct(session_id) as unique_sessions
+              FROM events
+              GROUP BY event_type, toStartOfMinute(event_time);
+
+              -- Device and location analytics
+              CREATE MATERIALIZED VIEW IF NOT EXISTS device_analytics_mv
+              ENGINE = SummingMergeTree()
+              PARTITION BY toYYYYMM(event_date)
+              ORDER BY (device_type, country, event_date)
+              AS SELECT
+                  device_type,
+                  country,
+                  city,
+                  toDate(event_time) as event_date,
+                  count() as event_count,
+                  countDistinct(user_id) as unique_users
+              FROM events
+              WHERE device_type != '' AND country != ''
+              GROUP BY device_type, country, city, toDate(event_time);
+
+              -- User behavior funnel table
+              CREATE TABLE IF NOT EXISTS user_funnel (
+                  user_id String,
+                  step_name String,
+                  step_order UInt8,
+                  completed_at DateTime64(3),
+                  conversion_time_ms UInt64
+              ) ENGINE = ReplacingMergeTree(completed_at)
+              PARTITION BY toYYYYMM(completed_at)
+              ORDER BY (user_id, step_order);
+
+              EOF
+
+              echo "ClickHouse tables created successfully"
+
+              # Keep container running to maintain init state
+              tail -f /dev/null
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "200m"
+
+      volumes:
+        - name: clickhouse-config
+          configMap:
+            name: clickhouse-config
+        - name: clickhouse-users
+          configMap:
+            name: clickhouse-users
+        - name: init-scripts
+          configMap:
+            name: clickhouse-init-scripts
+
+  volumeClaimTemplates:
+    - metadata:
+        name: clickhouse-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 100Gi
+        storageClassName: fast-ssd
+
+---
+# Redis for Caching and Session Storage
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-cache
+  namespace: default
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command: ["redis-server"]
+          args:
+            - --appendonly yes
+            - --appendfsync everysec
+            - --maxmemory 2gb
+            - --maxmemory-policy allkeys-lru
+            - --tcp-keepalive 60
+            - --timeout 300
+          ports:
+            - containerPort: 6379
+              name: redis
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+            - name: redis-config
+              mountPath: /usr/local/etc/redis
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "500m"
+          livenessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi
+        storageClassName: fast-ssd
+
+---
+# Data Pipeline Orchestrator (Apache Airflow)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-scheduler
+  namespace: default
+  labels:
+    app: airflow
+    component: scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow
+      component: scheduler
+  template:
+    metadata:
+      labels:
+        app: airflow
+        component: scheduler
+    spec:
+      containers:
+        - name: scheduler
+          image: apache/airflow:2.8.0-python3.9
+          env:
+            - name: AIRFLOW__CORE__EXECUTOR
+              value: "KubernetesExecutor"
+            - name: AIRFLOW__CORE__SQL_ALCHEMY_CONN
+              value: "postgresql://airflow:airflow@postgres:5432/airflow"
+            - name: AIRFLOW__WEBSERVER__SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: airflow-secret
+                  key: secret-key
+            - name: AIRFLOW__CORE__FERNET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: airflow-secret
+                  key: fernet-key
+          command: ["airflow", "scheduler"]
+          volumeMounts:
+            - name: airflow-dags
+              mountPath: /opt/airflow/dags
+            - name: airflow-logs
+              mountPath: /opt/airflow/logs
+            - name: dag-processor-config
+              mountPath: /opt/airflow/dag-processor
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import airflow.jobs.scheduler_job; print('OK')"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+
+        - name: dag-processor
+          image: python:3.9-slim
+          env:
+            - name: AIRFLOW_HOME
+              value: "/opt/airflow"
+          command: ["/bin/bash"]
+          args:
+            - -c
+            - |
+              pip install apache-airflow pandas requests boto3 pyspark
+
+              cat > /opt/airflow/dags/data_processing_dag.py << 'EOF'
+              from datetime import datetime, timedelta
+              from airflow import DAG
+              from airflow.operators.python import PythonOperator
+              from airflow.operators.bash import BashOperator
+              from airflow.providers.postgres.operators.postgres import PostgresOperator
+              from airflow.providers.http.operators.http import SimpleHttpOperator
+
+              default_args = {
+                  'owner': 'data-team',
+                  'depends_on_past': False,
+                  'start_date': datetime(2024, 1, 1),
+                  'email_on_failure': True,
+                  'email_on_retry': False,
+                  'retries': 2,
+                  'retry_delay': timedelta(minutes=5),
+                  'execution_timeout': timedelta(hours=2)
+              }
+
+              dag = DAG(
+                  'data_processing_pipeline',
+                  default_args=default_args,
+                  description='Comprehensive data processing pipeline',
+                  schedule_interval=timedelta(hours=1),
+                  catchup=False,
+                  max_active_runs=1,
+                  tags=['data', 'analytics', 'ml']
+              )
+
+              def extract_data(**context):
+                  """Extract data from various sources"""
+                  import pandas as pd
+                  import requests
+                  from datetime import datetime, timedelta
+                  
+                  # Extract from API
+                  api_data = requests.get('https://api.example.com/events').json()
+                  
+                  # Extract from database
+                  # This would connect to your actual data sources
+                  print(f"Extracted {len(api_data)} records from API")
+                  
+                  # Store extraction metadata
+                  context['task_instance'].xcom_push(
+                      key='extracted_records', 
+                      value=len(api_data)
+                  )
+                  
+                  return "extraction_complete"
+
+              def transform_data(**context):
+                  """Transform and clean data"""
+                  import pandas as pd
+                  
+                  extracted_count = context['task_instance'].xcom_pull(
+                      key='extracted_records'
+                  )
+                  
+                  # Simulate data transformation
+                  print(f"Transforming {extracted_count} records")
+                  
+                  # Data cleaning, validation, enrichment
+                  transformed_count = int(extracted_count * 0.95)  # Simulate data loss from cleaning
+                  
+                  context['task_instance'].xcom_push(
+                      key='transformed_records', 
+                      value=transformed_count
+                  )
+                  
+                  return "transformation_complete"
+
+              def load_data(**context):
+                  """Load data to target systems"""
+                  transformed_count = context['task_instance'].xcom_pull(
+                      key='transformed_records'
+                  )
+                  
+                  print(f"Loading {transformed_count} records to ClickHouse")
+                  
+                  # Load to ClickHouse, data warehouse, etc.
+                  return "load_complete"
+
+              def run_ml_model(**context):
+                  """Run machine learning model"""
+                  print("Running ML clustering model")
+                  
+                  # This would trigger your Spark ML job
+                  return "ml_complete"
+
+              def validate_data_quality(**context):
+                  """Validate data quality and completeness"""
+                  print("Running data quality checks")
+                  
+                  # Run data quality tests
+                  quality_score = 0.98  # Simulate quality score
+                  
+                  if quality_score < 0.95:
+                      raise ValueError(f"Data quality score {quality_score} below threshold")
+                  
+                  return "validation_complete"
+
+              # Define tasks
+              extract_task = PythonOperator(
+                  task_id='extract_data',
+                  python_callable=extract_data,
+                  dag=dag
+              )
+
+              transform_task = PythonOperator(
+                  task_id='transform_data',
+                  python_callable=transform_data,
+                  dag=dag
+              )
+
+              validate_task = PythonOperator(
+                  task_id='validate_data_quality',
+                  python_callable=validate_data_quality,
+                  dag=dag
+              )
+
+              load_task = PythonOperator(
+                  task_id='load_data',
+                  python_callable=load_data,
+                  dag=dag
+              )
+
+              ml_task = PythonOperator(
+                  task_id='run_ml_model',
+                  python_callable=run_ml_model,
+                  dag=dag
+              )
+
+              # Trigger Spark job
+              spark_task = BashOperator(
+                  task_id='trigger_spark_job',
+                  bash_command='kubectl create job --from=deployment/spark-data-processor spark-job-{{ ds_nodash }}',
+                  dag=dag
+              )
+
+              # Send notification
+              notify_task = SimpleHttpOperator(
+                  task_id='send_notification',
+                  http_conn_id='slack_webhook',
+                  endpoint='services/hooks/slack',
+                  data='{"text": "Data processing pipeline completed successfully"}',
+                  headers={"Content-Type": "application/json"},
+                  dag=dag
+              )
+
+              # Define task dependencies
+              extract_task >> transform_task >> validate_task >> load_task
+              load_task >> [ml_task, spark_task] >> notify_task
+              EOF
+
+              # Keep container running
+              tail -f /dev/null
+          volumeMounts:
+            - name: airflow-dags
+              mountPath: /opt/airflow/dags
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+
+      volumes:
+        - name: airflow-dags
+          persistentVolumeClaim:
+            claimName: airflow-dags-pvc
+        - name: airflow-logs
+          persistentVolumeClaim:
+            claimName: airflow-logs-pvc
+        - name: dag-processor-config
+          configMap:
+            name: dag-processor-config
+
+---
+# Services
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse-service
+  namespace: default
+spec:
+  selector:
+    app: clickhouse
+  ports:
+    - name: http
+      port: 8123
+      targetPort: 8123
+    - name: native
+      port: 9000
+      targetPort: 9000
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: default
+spec:
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-stream-processor-service
+  namespace: default
+spec:
+  selector:
+    app: stream-processor
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spark-master-service
+  namespace: default
+spec:
+  selector:
+    app: spark-processor
+  ports:
+    - name: spark-master
+      port: 7077
+      targetPort: 7077
+    - name: web-ui
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+
+---
+# ConfigMaps
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickhouse-config
+  namespace: default
+data:
+  config.xml: |
+    <?xml version="1.0"?>
+    <clickhouse>
+        <logger>
+            <level>information</level>
+            <console>true</console>
+        </logger>
+        <http_port>8123</http_port>
+        <tcp_port>9000</tcp_port>
+        <interserver_http_port>9009</interserver_http_port>
+        <listen_host>0.0.0.0</listen_host>
+        <max_connections>2048</max_connections>
+        <keep_alive_timeout>3</keep_alive_timeout>
+        <max_concurrent_queries>100</max_concurrent_queries>
+        <max_server_memory_usage>0</max_server_memory_usage>
+        <max_thread_pool_size>10000</max_thread_pool_size>
+        <path>/var/lib/clickhouse/</path>
+        <tmp_path>/var/lib/clickhouse/tmp/</tmp_path>
+        <users_config>/etc/clickhouse-server/users.d/users.xml</users_config>
+        <default_profile>default</default_profile>
+        <default_database>default</default_database>
+        <remote_servers>
+            <cluster_3shards_1replicas>
+                <shard>
+                    <replica>
+                        <host>clickhouse-analytics-0.clickhouse</host>
+                        <port>9000</port>
+                    </replica>
+                </shard>
+                <shard>
+                    <replica>
+                        <host>clickhouse-analytics-1.clickhouse</host>
+                        <port>9000</port>
+                    </replica>
+                </shard>
+                <shard>
+                    <replica>
+                        <host>clickhouse-analytics-2.clickhouse</host>
+                        <port>9000</port>
+                    </replica>
+                </shard>
+            </cluster_3shards_1replicas>
+        </remote_servers>
+    </clickhouse>
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickhouse-users
+  namespace: default
+data:
+  users.xml: |
+    <?xml version="1.0"?>
+    <clickhouse>
+        <users>
+            <analytics>
+                <password>password123</password>
+                <networks>
+                    <ip>::/0</ip>
+                </networks>
+                <profile>default</profile>
+                <quota>default</quota>
+                <databases>
+                    <database>analytics</database>
+                </databases>
+            </analytics>
+        </users>
+        <profiles>
+            <default>
+                <max_memory_usage>10000000000</max_memory_usage>
+                <use_uncompressed_cache>0</use_uncompressed_cache>
+                <load_balancing>random</load_balancing>
+            </default>
+        </profiles>
+        <quotas>
+            <default>
+                <interval>
+                    <duration>3600</duration>
+                    <queries>0</queries>
+                    <errors>0</errors>
+                    <result_rows>0</result_rows>
+                    <read_rows>0</read_rows>
+                    <execution_time>0</execution_time>
+                </interval>
+            </default>
+        </quotas>
+    </clickhouse>
+
+---
+# Persistent Volume Claims
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: input-data-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: standard
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: output-data-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: standard
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: airflow-dags-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: airflow-logs-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: standard
+
+---
+# Secrets
+apiVersion: v1
+kind: Secret
+metadata:
+  name: clickhouse-secret
+  namespace: default
+type: Opaque
+data:
+  password: cGFzc3dvcmQxMjM= # base64 encoded "password123"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: airflow-secret
+  namespace: default
+type: Opaque
+data:
+  secret-key: YWlyZmxvdy1zZWNyZXQta2V5LTEyMzQ1Ng== # base64 encoded secret
+  fernet-key: Zm5ldC1rZXktZm9yLWFpcmZsb3ctZW5jcnlwdGlvbi0xMjM0NTY= # base64 encoded fernet key
+
+---
+# Horizontal Pod Autoscaler for Stream Processor
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: kafka-stream-processor-hpa
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: kafka-stream-processor
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

@@ -1,0 +1,308 @@
+# File: .github/workflows/dockerfile_lint.yml
+name: Dockerfile Linting
+
+on:
+  push:
+    paths:
+      - "**/Dockerfile*"
+      - ".github/workflows/dockerfile_lint.yml"
+  pull_request:
+    paths:
+      - "**/Dockerfile*"
+      - ".github/workflows/dockerfile_lint.yml"
+
+jobs:
+  hadolint:
+    name: Hadolint Dockerfile Linting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Find all Dockerfiles
+        id: dockerfiles
+        run: |
+          echo "Finding all Dockerfile* files..."
+          find . -name "Dockerfile*" -type f | grep -v ".git" > dockerfiles.txt
+          cat dockerfiles.txt
+          echo "dockerfile_count=$(wc -l < dockerfiles.txt)" >> $GITHUB_OUTPUT
+
+      - name: Run Hadolint on all Dockerfiles
+        run: |
+          echo "Running Hadolint on $(cat dockerfiles.txt | wc -l) Dockerfiles..."
+
+          # Create hadolint config
+          cat > .hadolint.yaml << 'EOF'
+          ignored:
+            - DL3008  # Pin versions in apt get install
+            - DL3009  # Delete the apt-get lists after installing
+            - DL3015  # Avoid additional packages by specifying --no-install-recommends
+            - DL3018  # Pin versions in apk add
+            - DL3027  # Do not use apt as it is meant to be an end-user tool
+            - SC2086  # Double quote to prevent globbing and word splitting
+
+          failure-threshold: warning
+
+          format: json
+          EOF
+
+          # Run hadolint on each file
+          exit_code=0
+          while IFS= read -r dockerfile; do
+            echo "🔍 Linting: $dockerfile"
+            if docker run --rm -i hadolint/hadolint:latest hadolint --config /dev/stdin - < "$dockerfile" < .hadolint.yaml; then
+              echo "✅ $dockerfile passed"
+            else
+              echo "❌ $dockerfile failed"
+              exit_code=1
+            fi
+            echo "---"
+          done < dockerfiles.txt
+
+          exit $exit_code
+
+  dockerfile-best-practices:
+    name: Dockerfile Best Practices Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install analysis tools
+        run: |
+          # Install dive for image layer analysis
+          wget -q https://github.com/wagoodman/dive/releases/latest/download/dive_$(curl -s https://api.github.com/repos/wagoodman/dive/releases/latest | jq -r '.tag_name' | cut -d'v' -f2)_linux_amd64.deb
+          sudo dpkg -i dive_*.deb
+
+      - name: Check Dockerfile best practices
+        run: |
+          echo "# Dockerfile Best Practices Report" > dockerfile-report.md
+          echo "Generated: $(date)" >> dockerfile-report.md
+          echo "" >> dockerfile-report.md
+
+          find . -name "Dockerfile*" -type f | grep -v ".git" | while read dockerfile; do
+            echo "## Analysis: $dockerfile" >> dockerfile-report.md
+            echo "" >> dockerfile-report.md
+            
+            # Check for common issues
+            echo "### Common Issues Check" >> dockerfile-report.md
+            
+            # Check for FROM latest
+            if grep -q "FROM.*:latest" "$dockerfile"; then
+              echo "⚠️ Uses :latest tag (not recommended for production)" >> dockerfile-report.md
+            fi
+            
+            # Check for root user
+            if ! grep -q "USER " "$dockerfile"; then
+              echo "⚠️ No USER instruction found (runs as root)" >> dockerfile-report.md
+            fi
+            
+            # Check for COPY vs ADD
+            if grep -q "^ADD " "$dockerfile"; then
+              echo "⚠️ Uses ADD instead of COPY (use COPY unless extracting archives)" >> dockerfile-report.md
+            fi
+            
+            # Check for apt-get update without install
+            if grep -q "apt-get update" "$dockerfile" && ! grep -q "apt-get install" "$dockerfile"; then
+              echo "⚠️ apt-get update without install in same RUN" >> dockerfile-report.md
+            fi
+            
+            # Check for cache busting
+            if ! grep -q "apt-get.*--no-cache\|apk.*--no-cache\|rm -rf /var/lib/apt/lists" "$dockerfile"; then
+              echo "⚠️ No cache cleanup found" >> dockerfile-report.md
+            fi
+            
+            # Check for multi-stage builds
+            stage_count=$(grep -c "FROM " "$dockerfile")
+            if [ "$stage_count" -gt 1 ]; then
+              echo "✅ Uses multi-stage build ($stage_count stages)" >> dockerfile-report.md
+            fi
+            
+            # Check for healthcheck
+            if grep -q "HEALTHCHECK" "$dockerfile"; then
+              echo "✅ Includes HEALTHCHECK instruction" >> dockerfile-report.md
+            fi
+            
+            # Check for labels
+            if grep -q "LABEL" "$dockerfile"; then
+              echo "✅ Includes metadata labels" >> dockerfile-report.md
+            fi
+            
+            echo "" >> dockerfile-report.md
+            
+            # Show file content for review
+            echo "### Dockerfile Content" >> dockerfile-report.md
+            echo '```dockerfile' >> dockerfile-report.md
+            head -30 "$dockerfile" >> dockerfile-report.md
+            if [ $(wc -l < "$dockerfile") -gt 30 ]; then
+              echo "... (truncated, showing first 30 lines)" >> dockerfile-report.md
+            fi
+            echo '```' >> dockerfile-report.md
+            echo "" >> dockerfile-report.md
+            echo "---" >> dockerfile-report.md
+            echo "" >> dockerfile-report.md
+          done
+
+      - name: Upload Dockerfile report
+        uses: actions/upload-artifact@v3
+        with:
+          name: dockerfile-best-practices-report
+          path: dockerfile-report.md
+          retention-days: 30
+
+  dockerfile-security:
+    name: Dockerfile Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Security scan Dockerfiles
+        run: |
+          echo "# Dockerfile Security Report" > security-report.md
+          echo "Generated: $(date)" >> security-report.md
+          echo "" >> security-report.md
+
+          find . -name "Dockerfile*" -type f | grep -v ".git" | while read dockerfile; do
+            echo "## Security Analysis: $dockerfile" >> security-report.md
+            echo "" >> security-report.md
+            
+            # Check for security issues
+            echo "### Security Issues" >> security-report.md
+            
+            # Check for secrets in Dockerfile
+            if grep -i -E "(password|secret|key|token|api)" "$dockerfile"; then
+              echo "🔴 CRITICAL: Potential secrets found in Dockerfile" >> security-report.md
+            fi
+            
+            # Check for curl without verification
+            if grep -q "curl.*http://" "$dockerfile"; then
+              echo "🟡 WARNING: HTTP downloads found (use HTTPS)" >> security-report.md
+            fi
+            
+            # Check for wget without verification
+            if grep -q "wget.*--no-check-certificate" "$dockerfile"; then
+              echo "🔴 CRITICAL: Certificate verification disabled" >> security-report.md
+            fi
+            
+            # Check for sudo usage
+            if grep -q "sudo" "$dockerfile"; then
+              echo "🟡 WARNING: sudo usage found (avoid in containers)" >> security-report.md
+            fi
+            
+            # Check for chmod 777
+            if grep -q "chmod 777\|chmod -R 777" "$dockerfile"; then
+              echo "🔴 CRITICAL: chmod 777 found (security risk)" >> security-report.md
+            fi
+            
+            # Check for running as root
+            if grep -q "USER root\|USER 0" "$dockerfile"; then
+              echo "🟡 WARNING: Explicitly running as root" >> security-report.md
+            fi
+            
+            echo "" >> security-report.md
+            echo "---" >> security-report.md
+            echo "" >> security-report.md
+          done
+
+      - name: Upload security report
+        uses: actions/upload-artifact@v3
+        with:
+          name: dockerfile-security-report
+          path: security-report.md
+          retention-days: 30
+
+  dockerfile-optimization:
+    name: Dockerfile Optimization Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build sample images for analysis
+        run: |
+          echo "# Dockerfile Optimization Report" > optimization-report.md
+          echo "Generated: $(date)" >> optimization-report.md
+          echo "" >> optimization-report.md
+
+          find . -name "Dockerfile" -type f | grep -v ".git" | head -5 | while read dockerfile; do
+            dir=$(dirname "$dockerfile")
+            image_name="dockversehub-analysis:$(echo $dir | tr '/' '-')"
+            
+            echo "## Optimization Analysis: $dockerfile" >> optimization-report.md
+            echo "" >> optimization-report.md
+            
+            if docker build -t "$image_name" "$dir" 2>&1 | tee build.log; then
+              # Get image size
+              size=$(docker images "$image_name" --format "{{.Size}}")
+              echo "📦 **Image Size:** $size" >> optimization-report.md
+              
+              # Count layers
+              layers=$(docker history "$image_name" --format "{{.CreatedBy}}" | wc -l)
+              echo "📋 **Layers:** $layers" >> optimization-report.md
+              
+              # Check for optimization opportunities
+              echo "" >> optimization-report.md
+              echo "### Optimization Opportunities" >> optimization-report.md
+              
+              if [ "$layers" -gt 20 ]; then
+                echo "⚠️ High layer count ($layers) - consider combining RUN instructions" >> optimization-report.md
+              fi
+              
+              if grep -q "RUN apt-get update" "$dockerfile" && grep -q "RUN apt-get install" "$dockerfile"; then
+                echo "⚠️ Separate update and install commands - combine for better caching" >> optimization-report.md
+              fi
+              
+              echo "✅ Build successful" >> optimization-report.md
+            else
+              echo "❌ Build failed" >> optimization-report.md
+            fi
+            
+            echo "" >> optimization-report.md
+            echo "---" >> optimization-report.md
+            echo "" >> optimization-report.md
+          done
+
+      - name: Upload optimization report
+        uses: actions/upload-artifact@v3
+        with:
+          name: dockerfile-optimization-report
+          path: optimization-report.md
+          retention-days: 30
+
+  summary:
+    name: Generate Dockerfile Lint Summary
+    runs-on: ubuntu-latest
+    needs:
+      [
+        hadolint,
+        dockerfile-best-practices,
+        dockerfile-security,
+        dockerfile-optimization,
+      ]
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          echo "# Dockerfile Linting Summary" > summary.md
+          echo "Generated: $(date)" >> summary.md
+          echo "" >> summary.md
+          echo "## Results" >> summary.md
+          echo "- Hadolint: ${{ needs.hadolint.result }}" >> summary.md
+          echo "- Best Practices: ${{ needs.dockerfile-best-practices.result }}" >> summary.md
+          echo "- Security Scan: ${{ needs.dockerfile-security.result }}" >> summary.md
+          echo "- Optimization: ${{ needs.dockerfile-optimization.result }}" >> summary.md
+          echo "" >> summary.md
+          echo "## Recommendations" >> summary.md
+          echo "1. Review all security warnings in the security report" >> summary.md
+          echo "2. Implement multi-stage builds where possible" >> summary.md
+          echo "3. Use specific version tags instead of :latest" >> summary.md
+          echo "4. Add healthchecks to your containers" >> summary.md
+          echo "5. Run containers as non-root users" >> summary.md
+
+      - name: Upload summary
+        uses: actions/upload-artifact@v3
+        with:
+          name: dockerfile-lint-summary
+          path: summary.md
+          retention-days: 30

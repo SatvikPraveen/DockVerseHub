@@ -1,0 +1,98 @@
+# File Location: concepts/04_networking/load-balancing/nginx-lb.yml
+
+version: "3.8"
+
+services:
+  # Load balancer
+  nginx-lb:
+    image: nginx:alpine
+    container_name: nginx-loadbalancer
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx-lb.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    networks:
+      - frontend-network
+    depends_on:
+      - web1
+      - web2
+      - web3
+
+  # Web server instances
+  web1:
+    image: nginx:alpine
+    container_name: web1
+    volumes:
+      - ./web-content:/usr/share/nginx/html:ro
+    environment:
+      - SERVER_NAME=web1
+    networks:
+      - frontend-network
+    command: |
+      sh -c '
+        echo "<h1>Server: web1</h1><p>Container ID: $$(hostname)</p>" > /usr/share/nginx/html/index.html
+        nginx -g "daemon off;"
+      '
+
+  web2:
+    image: nginx:alpine
+    container_name: web2
+    volumes:
+      - ./web-content:/usr/share/nginx/html:ro
+    environment:
+      - SERVER_NAME=web2
+    networks:
+      - frontend-network
+    command: |
+      sh -c '
+        echo "<h1>Server: web2</h1><p>Container ID: $$(hostname)</p>" > /usr/share/nginx/html/index.html
+        nginx -g "daemon off;"
+      '
+
+  web3:
+    image: nginx:alpine
+    container_name: web3
+    volumes:
+      - ./web-content:/usr/share/nginx/html:ro
+    environment:
+      - SERVER_NAME=web3
+    networks:
+      - frontend-network
+    command: |
+      sh -c '
+        echo "<h1>Server: web3</h1><p>Container ID: $$(hostname)</p>" > /usr/share/nginx/html/index.html
+        nginx -g "daemon off;"
+      '
+
+  # Health checker
+  health-checker:
+    image: alpine:latest
+    container_name: health-checker
+    command: |
+      sh -c '
+        apk add --no-cache curl
+        while true; do
+          echo "=== Health Check $(date) ==="
+          for server in web1 web2 web3; do
+            if curl -f http://$$server/ &>/dev/null; then
+              echo "$$server: HEALTHY"
+            else
+              echo "$$server: UNHEALTHY"
+            fi
+          done
+          echo "Load Balancer Test:"
+          curl -s http://nginx-lb/ | grep -o "Server: web[0-9]" || echo "LB: FAILED"
+          echo "Sleeping..."
+          sleep 30
+        done
+      '
+    networks:
+      - frontend-network
+    depends_on:
+      - nginx-lb
+
+networks:
+  frontend-network:
+    driver: bridge

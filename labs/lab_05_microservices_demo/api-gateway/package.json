@@ -1,0 +1,29 @@
+{
+  "_comment": "File Location: labs/lab_05_microservices_demo/api-gateway/package.json",
+  "name": "api-gateway-middleware",
+  "version": "1.0.0",
+  "description": "Authentication middleware for API Gateway",
+  "main": "auth-middleware.js",
+  "scripts": {
+    "start": "node auth-middleware.js",
+    "test": "jest",
+    "dev": "nodemon auth-middleware.js"
+  },
+  "dependencies": {
+    "jsonwebtoken": "^9.0.2",
+    "redis": "^4.6.10"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.2"
+  },
+  "keywords": [
+    "api-gateway",
+    "authentication",
+    "middleware",
+    "jwt",
+    "redis"
+  ],
+  "author": "DockVerseHub",
+  "license": "MIT"
+}

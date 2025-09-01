@@ -1,0 +1,331 @@
+# Location: labs/lab_06_production_deployment/deployment/canary-deployment.yml
+version: "3.8"
+
+services:
+  # Stable Production Services
+  user-service-stable:
+    build:
+      context: ../../lab_05_microservices_demo/user-service
+      dockerfile: Dockerfile
+    container_name: user-service-stable
+    environment:
+      - DATABASE_URL=postgresql://userdb_user:${USERDB_PASSWORD}@postgres-user:5432/userdb
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET=${JWT_SECRET}
+      - ENVIRONMENT=production
+      - DEPLOYMENT_TYPE=stable
+      - SERVICE_VERSION=${STABLE_VERSION:-v1.0.0}
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+
+  order-service-stable:
+    build:
+      context: ../../lab_05_microservices_demo/order-service
+      dockerfile: Dockerfile
+    container_name: order-service-stable
+    environment:
+      - DATABASE_URL=postgresql://orderdb_user:${ORDERDB_PASSWORD}@postgres-order:5432/orderdb
+      - USER_SERVICE_URL=http://user-service-stable:8000
+      - ENVIRONMENT=production
+      - DEPLOYMENT_TYPE=stable
+      - SERVICE_VERSION=${STABLE_VERSION:-v1.0.0}
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: 3
+
+  notification-service-stable:
+    build:
+      context: ../../lab_05_microservices_demo/notification-service
+      dockerfile: Dockerfile
+    container_name: notification-service-stable
+    environment:
+      - MONGODB_URL=mongodb://notifydb_user:${NOTIFYDB_PASSWORD}@mongodb:27017/notifydb
+      - ENVIRONMENT=production
+      - DEPLOYMENT_TYPE=stable
+      - SERVICE_VERSION=${STABLE_VERSION:-v1.0.0}
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: 3
+
+  # Canary Services (New Version)
+  user-service-canary:
+    build:
+      context: ../../lab_05_microservices_demo/user-service
+      dockerfile: Dockerfile
+    container_name: user-service-canary
+    environment:
+      - DATABASE_URL=postgresql://userdb_user:${USERDB_PASSWORD}@postgres-user:5432/userdb
+      - REDIS_URL=redis://redis:6379/1
+      - JWT_SECRET=${JWT_SECRET}
+      - ENVIRONMENT=production
+      - DEPLOYMENT_TYPE=canary
+      - SERVICE_VERSION=${CANARY_VERSION:-v1.1.0}
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+    profiles:
+      - canary
+
+  order-service-canary:
+    build:
+      context: ../../lab_05_microservices_demo/order-service
+      dockerfile: Dockerfile
+    container_name: order-service-canary
+    environment:
+      - DATABASE_URL=postgresql://orderdb_user:${ORDERDB_PASSWORD}@postgres-order:5432/orderdb
+      - USER_SERVICE_URL=http://user-service-canary:8000
+      - ENVIRONMENT=production
+      - DEPLOYMENT_TYPE=canary
+      - SERVICE_VERSION=${CANARY_VERSION:-v1.1.0}
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      replicas: 1
+    profiles:
+      - canary
+
+  notification-service-canary:
+    build:
+      context: ../../lab_05_microservices_demo/notification-service
+      dockerfile: Dockerfile
+    container_name: notification-service-canary
+    environment:
+      - MONGODB_URL=mongodb://notifydb_user:${NOTIFYDB_PASSWORD}@mongodb:27017/notifydb
+      - ENVIRONMENT=production
+      - DEPLOYMENT_TYPE=canary
+      - SERVICE_VERSION=${CANARY_VERSION:-v1.1.0}
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      replicas: 1
+    profiles:
+      - canary
+
+  # Traffic Splitting Load Balancer
+  canary-router:
+    image: nginx:1.25-alpine
+    container_name: canary-router
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./canary-nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    environment:
+      - CANARY_TRAFFIC_PERCENT=${CANARY_TRAFFIC_PERCENT:-10}
+      - CANARY_HEADER=${CANARY_HEADER:-X-Canary-User}
+      - CANARY_COOKIE=${CANARY_COOKIE:-canary_user}
+    networks:
+      - backend
+      - frontend
+    restart: unless-stopped
+    depends_on:
+      - user-service-stable
+      - order-service-stable
+      - notification-service-stable
+
+  # Canary Analysis Service
+  canary-analyzer:
+    image: alpine:latest
+    container_name: canary-analyzer
+    volumes:
+      - ./canary-scripts:/scripts:ro
+      - ./metrics:/metrics
+    environment:
+      - PROMETHEUS_URL=http://prometheus:9090
+      - ANALYSIS_INTERVAL=60
+      - ERROR_RATE_THRESHOLD=5.0
+      - LATENCY_THRESHOLD_MS=500
+      - CANARY_DURATION_MIN=${CANARY_DURATION_MIN:-30}
+      - AUTO_PROMOTE=${AUTO_PROMOTE:-false}
+      - SLACK_WEBHOOK=${SLACK_WEBHOOK:-}
+    command: >
+      sh -c "
+        apk add --no-cache curl jq bc &&
+        echo 'Canary analyzer starting...' &&
+        while true; do
+          /scripts/analyze-canary.sh
+          sleep \${ANALYSIS_INTERVAL}
+        done
+      "
+    networks:
+      - backend
+    restart: unless-stopped
+    profiles:
+      - canary
+
+  # Feature Flag Service
+  feature-flags:
+    image: redis:7-alpine
+    container_name: feature-flags
+    command: redis-server --requirepass ${FEATURE_FLAG_PASSWORD}
+    volumes:
+      - feature-flags-data:/data
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${FEATURE_FLAG_PASSWORD}", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # A/B Testing Controller
+  ab-testing-controller:
+    image: alpine:latest
+    container_name: ab-testing-controller
+    volumes:
+      - ./ab-testing:/scripts:ro
+    environment:
+      - REDIS_URL=redis://feature-flags:6379
+      - REDIS_PASSWORD=${FEATURE_FLAG_PASSWORD}
+      - TEST_GROUPS=control,treatment
+      - TRAFFIC_SPLIT=90,10
+    command: >
+      sh -c "
+        apk add --no-cache redis curl jq &&
+        echo 'A/B Testing controller ready' &&
+        /scripts/setup-tests.sh &&
+        tail -f /dev/null
+      "
+    networks:
+      - backend
+    depends_on:
+      feature-flags:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - canary
+
+  # Metrics Collector for Canary Analysis
+  canary-metrics:
+    image: prom/prometheus:v2.47.0
+    container_name: canary-prometheus
+    command:
+      - "--config.file=/etc/prometheus/canary-prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./canary-prometheus.yml:/etc/prometheus/canary-prometheus.yml:ro
+      - canary-prometheus-data:/prometheus
+    ports:
+      - "9091:9090"
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # Canary Deployment Webhook Service
+  canary-webhook:
+    image: alpine:latest
+    container_name: canary-webhook
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./webhook-scripts:/scripts:ro
+    environment:
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
+      - ALLOWED_REPOS=${ALLOWED_REPOS:-}
+    command: >
+      sh -c "
+        apk add --no-cache docker-cli curl jq python3 py3-pip &&
+        pip3 install flask gunicorn &&
+        echo 'Starting webhook server...' &&
+        cd /scripts &&
+        gunicorn --bind 0.0.0.0:8080 webhook:app
+      "
+    networks:
+      - backend
+      - frontend
+    restart: unless-stopped
+
+  # Rollback Service
+  rollback-service:
+    image: alpine:latest
+    container_name: rollback-service
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./rollback-scripts:/scripts:ro
+    environment:
+      - MONITOR_INTERVAL=30
+      - ERROR_THRESHOLD=10
+      - LATENCY_THRESHOLD=1000
+      - ROLLBACK_TIMEOUT=300
+    command: >
+      sh -c "
+        apk add --no-cache docker-cli curl jq &&
+        echo 'Rollback service monitoring...' &&
+        while true; do
+          /scripts/monitor-and-rollback.sh
+          sleep \${MONITOR_INTERVAL}
+        done
+      "
+    networks:
+      - backend
+    restart: unless-stopped
+    profiles:
+      - canary
+
+volumes:
+  feature-flags-data:
+  canary-prometheus-data:
+
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.42.0.0/16

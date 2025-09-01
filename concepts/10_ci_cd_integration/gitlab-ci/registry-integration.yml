@@ -1,0 +1,400 @@
+# 10_ci_cd_integration/gitlab-ci/registry-integration.yml
+
+# GitLab Container Registry Integration
+# Advanced registry operations, multi-registry support, and image management
+
+variables:
+  # Primary GitLab registry
+  GL_REGISTRY: $CI_REGISTRY
+  GL_REGISTRY_IMAGE: $CI_REGISTRY_IMAGE
+
+  # External registries
+  DOCKER_HUB_REGISTRY: docker.io
+  DOCKER_HUB_IMAGE: your-org/app-name
+
+  GHCR_REGISTRY: ghcr.io
+  GHCR_IMAGE: ghcr.io/your-org/app-name
+
+  AWS_ECR_REGISTRY: 123456789012.dkr.ecr.us-west-2.amazonaws.com
+  AWS_ECR_IMAGE: your-app
+
+  HARBOR_REGISTRY: harbor.company.com
+  HARBOR_PROJECT: production
+
+  # Image signing and attestation
+  COSIGN_YES: "true"
+  SIGSTORE_EXPERIMENTAL: "1"
+
+.registry-base:
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
+  before_script:
+    - |
+      # Wait for Docker daemon
+      timeout 300 bash -c 'until docker info >/dev/null 2>&1; do sleep 2; done'
+
+    # Install additional tools
+    - apk add --no-cache curl jq skopeo cosign
+
+    # Setup BuildKit
+    - docker buildx create --use --name multi-registry-builder
+
+# GitLab Registry operations
+gitlab-registry-build:
+  extends: .registry-base
+  stage: build
+  before_script:
+    - !reference [.registry-base, before_script]
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+  script:
+    - |
+      # Build and push to GitLab registry
+      docker buildx build \
+        --platform linux/amd64,linux/arm64 \
+        --cache-from type=registry,ref=$GL_REGISTRY_IMAGE:cache \
+        --cache-to type=registry,ref=$GL_REGISTRY_IMAGE:cache,mode=max \
+        --build-arg BUILDTIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+        --build-arg VERSION=${CI_COMMIT_TAG:-$CI_COMMIT_SHORT_SHA} \
+        --build-arg REGISTRY=$GL_REGISTRY \
+        --tag $GL_REGISTRY_IMAGE:$CI_COMMIT_SHA \
+        --tag $GL_REGISTRY_IMAGE:latest \
+        --push \
+        --provenance=true \
+        --sbom=true \
+        .
+
+      # Generate image manifest
+      docker buildx imagetools inspect $GL_REGISTRY_IMAGE:$CI_COMMIT_SHA --format "{{json .}}" > gitlab-manifest.json
+  artifacts:
+    paths:
+      - gitlab-manifest.json
+    expire_in: 1 week
+
+# Multi-registry push
+multi-registry-push:
+  extends: .registry-base
+  stage: package
+  needs: ["gitlab-registry-build"]
+  before_script:
+    - !reference [.registry-base, before_script]
+    # Login to all registries
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+    - echo $DOCKER_HUB_TOKEN | docker login -u $DOCKER_HUB_USER --password-stdin $DOCKER_HUB_REGISTRY
+    - echo $GHCR_TOKEN | docker login -u $GHCR_USER --password-stdin $GHCR_REGISTRY
+    - aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin $AWS_ECR_REGISTRY
+    - echo $HARBOR_PASSWORD | docker login -u $HARBOR_USER --password-stdin $HARBOR_REGISTRY
+  script:
+    - |
+      SOURCE_IMAGE="$GL_REGISTRY_IMAGE:$CI_COMMIT_SHA"
+
+      # Copy to external registries using skopeo (more efficient)
+      registries=(
+        "$DOCKER_HUB_IMAGE:$CI_COMMIT_SHA"
+        "$DOCKER_HUB_IMAGE:latest"
+        "$GHCR_IMAGE:$CI_COMMIT_SHA"
+        "$GHCR_IMAGE:latest"
+        "$AWS_ECR_REGISTRY/$AWS_ECR_IMAGE:$CI_COMMIT_SHA"
+        "$AWS_ECR_REGISTRY/$AWS_ECR_IMAGE:latest"
+        "$HARBOR_REGISTRY/$HARBOR_PROJECT/app:$CI_COMMIT_SHA"
+        "$HARBOR_REGISTRY/$HARBOR_PROJECT/app:latest"
+      )
+
+      for target in "${registries[@]}"; do
+        echo "Copying to $target..."
+        skopeo copy --all --retry-times=3 \
+          "docker://$SOURCE_IMAGE" \
+          "docker://$target"
+      done
+
+      # Update latest tag for release tags
+      if [[ -n "$CI_COMMIT_TAG" ]]; then
+        for registry in "$DOCKER_HUB_IMAGE" "$GHCR_IMAGE" "$AWS_ECR_REGISTRY/$AWS_ECR_IMAGE" "$HARBOR_REGISTRY/$HARBOR_PROJECT/app"; do
+          skopeo copy --retry-times=3 \
+            "docker://$SOURCE_IMAGE" \
+            "docker://$registry:$CI_COMMIT_TAG"
+        done
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+# Image signing with Cosign
+image-signing:
+  extends: .registry-base
+  stage: package
+  needs: ["multi-registry-push"]
+  before_script:
+    - !reference [.registry-base, before_script]
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+  script:
+    - |
+      # Sign images with Cosign
+      images=(
+        "$GL_REGISTRY_IMAGE:$CI_COMMIT_SHA"
+        "$DOCKER_HUB_IMAGE:$CI_COMMIT_SHA"
+        "$GHCR_IMAGE:$CI_COMMIT_SHA"
+        "$AWS_ECR_REGISTRY/$AWS_ECR_IMAGE:$CI_COMMIT_SHA"
+      )
+
+      if [[ -n "$COSIGN_PRIVATE_KEY" ]]; then
+        # Sign with private key
+        for image in "${images[@]}"; do
+          echo "Signing $image..."
+          echo "$COSIGN_PRIVATE_KEY" | cosign sign --key env://COSIGN_PRIVATE_KEY "$image"
+        done
+      else
+        # Keyless signing (OIDC)
+        for image in "${images[@]}"; do
+          echo "Keyless signing $image..."
+          cosign sign "$image"
+        done
+      fi
+
+      # Generate attestations
+      for image in "${images[@]}"; do
+        echo "Creating attestation for $image..."
+        cosign attest --predicate=attestation.json "$image" || true
+      done
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+# Registry cleanup and maintenance
+registry-cleanup:
+  extends: .registry-base
+  stage: cleanup
+  before_script:
+    - !reference [.registry-base, before_script]
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+  script:
+    - |
+      # Cleanup GitLab registry (keep last 10 images per tag)
+      apk add --no-cache python3 py3-pip
+      pip3 install requests python-gitlab
+
+      python3 << 'EOF'
+      import gitlab
+      import requests
+      import os
+      from datetime import datetime, timedelta
+
+      # Initialize GitLab client
+      gl = gitlab.Gitlab(os.environ['CI_SERVER_URL'], private_token=os.environ['GITLAB_ACCESS_TOKEN'])
+      project = gl.projects.get(os.environ['CI_PROJECT_ID'])
+
+      # Get repositories
+      repositories = project.repositories.list(all=True)
+
+      for repo in repositories:
+          print(f"Processing repository: {repo.location}")
+          
+          # Get tags
+          tags = repo.tags.list(all=True)
+          
+          # Sort by created date (newest first)
+          tags.sort(key=lambda x: x.created_at, reverse=True)
+          
+          # Keep latest 10, delete older ones
+          tags_to_delete = tags[10:]
+          
+          for tag in tags_to_delete:
+              # Don't delete 'latest' or tagged releases
+              if tag.name not in ['latest'] and not tag.name.startswith('v'):
+                  try:
+                      print(f"Deleting tag: {tag.name}")
+                      tag.delete()
+                  except Exception as e:
+                      print(f"Error deleting tag {tag.name}: {e}")
+      EOF
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  allow_failure: true
+
+# Registry security scanning
+registry-security-scan:
+  extends: .registry-base
+  stage: security
+  before_script:
+    - !reference [.registry-base, before_script]
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+    # Install security tools
+    - curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+  script:
+    - |
+      # Scan images in registry
+      images=(
+        "$GL_REGISTRY_IMAGE:latest"
+        "$GL_REGISTRY_IMAGE:$CI_COMMIT_SHA"
+      )
+
+      for image in "${images[@]}"; do
+        echo "Scanning $image..."
+        
+        # Vulnerability scan
+        trivy image --format template --template "@contrib/gitlab.tpl" \
+          -o "trivy-$(echo $image | sed 's/[^a-zA-Z0-9]/-/g').json" \
+          "$image"
+        
+        # Configuration scan
+        trivy config --format template --template "@contrib/gitlab.tpl" \
+          -o "trivy-config-$(echo $image | sed 's/[^a-zA-Z0-9]/-/g').json" \
+          "$image"
+        
+        # Generate SBOM
+        trivy image --format spdx-json \
+          -o "sbom-$(echo $image | sed 's/[^a-zA-Z0-9]/-/g').json" \
+          "$image"
+      done
+  artifacts:
+    reports:
+      container_scanning: "trivy-*.json"
+    paths:
+      - "sbom-*.json"
+    expire_in: 1 week
+
+# Registry mirroring setup
+registry-mirror:
+  extends: .registry-base
+  stage: build
+  script:
+    - |
+      # Setup registry mirror for faster builds
+      mkdir -p /etc/docker
+      cat > /etc/docker/daemon.json << EOF
+      {
+        "registry-mirrors": [
+          "https://mirror.gcr.io",
+          "https://harbor.company.com"
+        ],
+        "insecure-registries": [
+          "registry.internal.company.com:5000"
+        ]
+      }
+      EOF
+
+      # Test mirror connectivity
+      for mirror in "mirror.gcr.io" "harbor.company.com"; do
+        echo "Testing mirror: $mirror"
+        curl -sSf "https://$mirror/v2/" || echo "Mirror $mirror not available"
+      done
+  rules:
+    - when: manual
+
+# Registry promotion workflow
+promote-to-production:
+  extends: .registry-base
+  stage: deploy-production
+  environment:
+    name: production
+  before_script:
+    - !reference [.registry-base, before_script]
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+    - echo $PROD_REGISTRY_TOKEN | docker login -u $PROD_REGISTRY_USER --password-stdin $PROD_REGISTRY
+  script:
+    - |
+      # Promote staging image to production registry
+      SOURCE_IMAGE="$GL_REGISTRY_IMAGE:$CI_COMMIT_SHA"
+      PROD_IMAGE="$PROD_REGISTRY/production/app:$CI_COMMIT_SHA"
+      PROD_LATEST="$PROD_REGISTRY/production/app:latest"
+
+      # Verify image signature before promotion
+      if cosign verify --key $COSIGN_PUBLIC_KEY "$SOURCE_IMAGE"; then
+        echo "Image signature verified, promoting to production..."
+        
+        # Copy to production registry
+        skopeo copy --all --retry-times=3 \
+          "docker://$SOURCE_IMAGE" \
+          "docker://$PROD_IMAGE"
+          
+        skopeo copy --retry-times=3 \
+          "docker://$SOURCE_IMAGE" \
+          "docker://$PROD_LATEST"
+          
+        # Sign production image
+        cosign sign --key $PROD_COSIGN_KEY "$PROD_IMAGE"
+        cosign sign --key $PROD_COSIGN_KEY "$PROD_LATEST"
+        
+        echo "Successfully promoted to production registry"
+      else
+        echo "Image signature verification failed!"
+        exit 1
+      fi
+  rules:
+    - if: $CI_COMMIT_TAG
+  when: manual
+
+# Registry metrics and monitoring
+registry-metrics:
+  extends: .registry-base
+  stage: cleanup
+  before_script:
+    - !reference [.registry-base, before_script]
+    - apk add --no-cache curl jq
+  script:
+    - |
+      # Collect registry metrics
+      echo "=== Registry Usage Report ==="
+
+      # GitLab registry usage
+      curl -s -H "PRIVATE-TOKEN: $GITLAB_ACCESS_TOKEN" \
+        "$CI_API_V4_URL/projects/$CI_PROJECT_ID/registry/repositories" | \
+        jq -r '.[] | "\(.name): \(.size_bytes) bytes"'
+
+      # Image pull statistics
+      curl -s -H "PRIVATE-TOKEN: $GITLAB_ACCESS_TOKEN" \
+        "$CI_API_V4_URL/projects/$CI_PROJECT_ID/registry/repositories" | \
+        jq -r '.[] | "Repository: \(.location), Tags: \(.tags_count), Size: \(.size_bytes)"'
+
+      # Generate metrics file for monitoring
+      cat > registry-metrics.json << EOF
+      {
+        "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+        "project_id": "$CI_PROJECT_ID",
+        "registry_size_bytes": $(curl -s -H "PRIVATE-TOKEN: $GITLAB_ACCESS_TOKEN" "$CI_API_V4_URL/projects/$CI_PROJECT_ID/registry/repositories" | jq '[.[] | .size_bytes] | add // 0'),
+        "total_repositories": $(curl -s -H "PRIVATE-TOKEN: $GITLAB_ACCESS_TOKEN" "$CI_API_V4_URL/projects/$CI_PROJECT_ID/registry/repositories" | jq 'length'),
+        "total_tags": $(curl -s -H "PRIVATE-TOKEN: $GITLAB_ACCESS_TOKEN" "$CI_API_V4_URL/projects/$CI_PROJECT_ID/registry/repositories" | jq '[.[] | .tags_count] | add // 0')
+      }
+      EOF
+  artifacts:
+    paths:
+      - registry-metrics.json
+    expire_in: 1 month
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+
+# Registry disaster recovery
+registry-backup:
+  extends: .registry-base
+  stage: cleanup
+  before_script:
+    - !reference [.registry-base, before_script]
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+    - echo $BACKUP_REGISTRY_TOKEN | docker login -u $BACKUP_REGISTRY_USER --password-stdin $BACKUP_REGISTRY
+  script:
+    - |
+      # Backup critical images to backup registry
+      CRITICAL_TAGS=("latest" "stable" "$CI_COMMIT_TAG")
+
+      for tag in "${CRITICAL_TAGS[@]}"; do
+        if [[ -n "$tag" ]]; then
+          SOURCE="$GL_REGISTRY_IMAGE:$tag"
+          BACKUP="$BACKUP_REGISTRY/backups/app:$tag"
+          
+          echo "Backing up $SOURCE to $BACKUP"
+          skopeo copy --all --retry-times=3 \
+            "docker://$SOURCE" \
+            "docker://$BACKUP" || echo "Backup failed for $tag"
+        fi
+      done
+
+      # Create backup manifest
+      echo "Backup completed at $(date)" > backup-log.txt
+      echo "Backed up tags: ${CRITICAL_TAGS[*]}" >> backup-log.txt
+  artifacts:
+    paths:
+      - backup-log.txt
+    expire_in: 1 month
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "schedule"

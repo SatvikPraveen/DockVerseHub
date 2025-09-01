@@ -1,0 +1,93 @@
+# File Location: concepts/04_networking/custom-networks/multi-network.yml
+
+version: "3.8"
+
+services:
+  # Frontend web service (public-facing)
+  frontend:
+    image: nginx:alpine
+    container_name: frontend-service
+    ports:
+      - "80:80"
+    networks:
+      - public-network
+      - backend-network
+    volumes:
+      - ./nginx-frontend.conf:/etc/nginx/nginx.conf:ro
+
+  # API service (backend network only)
+  api:
+    image: node:alpine
+    container_name: api-service
+    command: |
+      sh -c '
+        echo "const express = require(\"express\"); 
+        const app = express(); 
+        app.get(\"/api/health\", (req,res) => res.json({status:\"ok\"})); 
+        app.listen(3000, () => console.log(\"API running on port 3000\"));" > app.js
+        npm install express && node app.js
+      '
+    networks:
+      - backend-network
+      - database-network
+
+  # Database service (database network only)
+  database:
+    image: postgres:13-alpine
+    container_name: database-service
+    environment:
+      POSTGRES_DB: appdb
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+    networks:
+      - database-network
+
+  # Cache service (backend network only)
+  cache:
+    image: redis:alpine
+    container_name: cache-service
+    networks:
+      - backend-network
+
+  # Admin service (access to all networks)
+  admin:
+    image: alpine:latest
+    container_name: admin-service
+    command: |
+      sh -c '
+        apk add --no-cache curl bind-tools iputils
+        while true; do
+          echo "=== Admin Network Tests ==="
+          echo "Frontend: $(ping -c 1 frontend-service | grep time || echo FAIL)"
+          echo "API: $(ping -c 1 api-service | grep time || echo FAIL)"  
+          echo "Database: $(ping -c 1 database-service | grep time || echo FAIL)"
+          echo "Cache: $(ping -c 1 cache-service | grep time || echo FAIL)"
+          sleep 30
+        done
+      '
+    networks:
+      - public-network
+      - backend-network
+      - database-network
+
+networks:
+  # Public network - DMZ
+  public-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.1.0/24
+
+  # Backend network - Application tier
+  backend-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.2.0/24
+
+  # Database network - Data tier
+  database-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.3.0/24

@@ -1,0 +1,589 @@
+# 10_ci_cd_integration/deployment-strategies/canary.yml
+
+# Canary Deployment Strategy
+# Gradual rollout with traffic splitting and automated rollback
+
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: app-canary
+  namespace: production
+  labels:
+    app: myapp
+    deployment-strategy: canary
+spec:
+  replicas: 5
+  strategy:
+    canary:
+      maxSurge: "25%"
+      maxUnavailable: 0
+      analysis:
+        templates:
+        - templateName: success-rate
+        startingStep: 2
+        args:
+        - name: service-name
+          value: app-canary-service
+      steps:
+      - setWeight: 10
+      - pause:
+          duration: 2m
+      - setWeight: 20
+      - pause:
+          duration: 2m
+      - setWeight: 40
+      - pause:
+          duration: 5m
+      - setWeight: 60
+      - pause:
+          duration: 5m
+      - setWeight: 80
+      - pause:
+          duration: 5m
+      trafficRouting:
+        nginx:
+          stableService: app-stable-service
+          canaryService: app-canary-service
+          annotationPrefix: nginx.ingress.kubernetes.io
+          additionalIngressAnnotations:
+            canary-by-header: X-Canary
+            canary-by-cookie: canary-cookie
+        istio:
+          virtualService:
+            name: app-vsvc
+            routes:
+            - primary
+          destinationRule:
+            name: app-destrule
+            canarySubsetName: canary
+            stableSubsetName: stable
+      analysis:
+        successCondition: result[0] >= 0.95
+        failureLimit: 3
+        inconclusiveLimit: 2
+        interval: 1m
+        metrics:
+        - name: success-rate
+          interval: 1m
+          failureLimit: 3
+          provider:
+            prometheus:
+              address: http://prometheus-server.monitoring:80
+              query: |
+                sum(rate(http_requests_total{service="app-canary-service",status!~"5.*"}[5m])) /
+                sum(rate(http_requests_total{service="app-canary-service"}[5m]))
+        - name: latency
+          interval: 1m
+          successCondition: result[0] <= 500
+          failureLimit: 3
+          provider:
+            prometheus:
+              address: http://prometheus-server.monitoring:80
+              query: |
+                histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service="app-canary-service"}[5m])) by (le)) * 1000
+        - name: error-rate
+          interval: 1m
+          successCondition: result[0] <= 0.05
+          failureLimit: 3
+          provider:
+            prometheus:
+              address: http://prometheus-server.monitoring:80
+              query: |
+                sum(rate(http_requests_total{service="app-canary-service",status=~"5.*"}[5m])) /
+                sum(rate(http_requests_total{service="app-canary-service"}[5m]))
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: app
+        image: myapp:latest
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: NODE_ENV
+          value: production
+        - name: DEPLOYMENT_TYPE
+          value: canary
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 3
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 15"]
+
+---
+# Stable Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-stable-service
+  namespace: production
+  labels:
+    app: myapp
+    service-type: stable
+spec:
+  ports:
+  - port: 80
+    targetPort: 3000
+    protocol: TCP
+    name: http
+  selector:
+    app: myapp
+
+---
+# Canary Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-canary-service
+  namespace: production
+  labels:
+    app: myapp
+    service-type: canary
+spec:
+  ports:
+  - port: 80
+    targetPort: 3000
+    protocol: TCP
+    name: http
+  selector:
+    app: myapp
+
+---
+# Analysis Template for Success Rate
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: success-rate
+  namespace: production
+spec:
+  args:
+  - name: service-name
+  metrics:
+  - name: success-rate
+    interval: 1m
+    count: 5
+    successCondition: result[0] >= 0.95
+    failureLimit: 3
+    provider:
+      prometheus:
+        address: http://prometheus-server.monitoring:80
+        query: |
+          sum(rate(http_requests_total{service="{{args.service-name}}",status!~"5.*"}[5m])) /
+          sum(rate(http_requests_total{service="{{args.service-name}}"}[5m]))
+  - name: avg-response-time
+    interval: 1m
+    count: 5
+    successCondition: result[0] <= 500
+    failureLimit: 3
+    provider:
+      prometheus:
+        address: http://prometheus-server.monitoring:80
+        query: |
+          sum(rate(http_request_duration_seconds_sum{service="{{args.service-name}}"}[5m])) /
+          sum(rate(http_request_duration_seconds_count{service="{{args.service-name}}"}[5m])) * 1000
+
+---
+# Nginx Ingress for Canary
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+  namespace: production
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  tls:
+  - hosts:
+    - app.example.com
+    secretName: app-tls
+  rules:
+  - host: app.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: app-stable-service
+            port:
+              number: 80
+
+---
+# Canary Ingress (for traffic splitting)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-canary-ingress
+  namespace: production
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/canary: "true"
+    nginx.ingress.kubernetes.io/canary-weight: "0"
+    nginx.ingress.kubernetes.io/canary-by-header: "X-Canary"
+    nginx.ingress.kubernetes.io/canary-by-cookie: "canary-cookie"
+spec:
+  tls:
+  - hosts:
+    - app.example.com
+    secretName: app-tls
+  rules:
+  - host: app.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: app-canary-service
+            port:
+              number: 80
+
+---
+# Istio VirtualService for Advanced Traffic Routing
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: app-vsvc
+  namespace: production
+spec:
+  hosts:
+  - app.example.com
+  gateways:
+  - app-gateway
+  http:
+  - match:
+    - headers:
+        x-canary:
+          exact: "true"
+    route:
+    - destination:
+        host: app-canary-service
+        subset: canary
+      weight: 100
+  - route:
+    - destination:
+        host: app-stable-service
+        subset: stable
+      weight: 100
+    - destination:
+        host: app-canary-service
+        subset: canary
+      weight: 0
+
+---
+# Istio DestinationRule
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: app-destrule
+  namespace: production
+spec:
+  host: app-canary-service
+  subsets:
+  - name: stable
+    labels:
+      app: myapp
+  - name: canary
+    labels:
+      app: myapp
+
+---
+# Flagger Canary Resource (Alternative to Argo Rollouts)
+apiVersion: flagger.app/v1beta1
+kind: Canary
+metadata:
+  name: app-flagger-canary
+  namespace: production
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: app-deployment
+  progressDeadlineSeconds: 60
+  autoscalerRef:
+    apiVersion: autoscaling/v2
+    kind: HorizontalPodAutoscaler
+    name: app-hpa
+  service:
+    port: 80
+    targetPort: 3000
+    gateways:
+    - app-gateway
+    hosts:
+    - app.example.com
+    trafficPolicy:
+      tls:
+        mode: DISABLE
+  analysis:
+    interval: 1m
+    threshold: 5
+    maxWeight: 50
+    stepWeight: 10
+    metrics:
+    - name: request-success-rate
+      thresholdRange:
+        min: 95
+      interval: 1m
+    - name: request-duration
+      thresholdRange:
+        max: 500
+      interval: 1m
+    - name: custom-metric
+      templateRef:
+        name: latency
+        namespace: flagger-system
+      thresholdRange:
+        max: 0.5
+      interval: 1m
+    webhooks:
+    - name: pre-rollout
+      type: pre-rollout
+      url: http://webhook-service.monitoring/pre-rollout
+      timeout: 15s
+      metadata:
+        cmd: "echo starting canary deployment"
+    - name: post-rollout
+      type: post-rollout
+      url: http://webhook-service.monitoring/post-rollout
+      timeout: 15s
+      metadata:
+        cmd: "echo canary deployment completed"
+    - name: rollback
+      type: rollback
+      url: http://webhook-service.monitoring/rollback
+      timeout: 15s
+      metadata:
+        cmd: "echo canary deployment failed"
+
+---
+# ServiceMonitor for Prometheus
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: app-canary-monitor
+  namespace: production
+  labels:
+    app: myapp
+    deployment-strategy: canary
+spec:
+  selector:
+    matchLabels:
+      app: myapp
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 15s
+    scrapeTimeout: 10s
+
+---
+# PrometheusRule for Canary Alerts
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: app-canary-alerts
+  namespace: production
+  labels:
+    app: myapp
+spec:
+  groups:
+  - name: canary.rules
+    rules:
+    - alert: CanaryHighErrorRate
+      expr: |
+        sum(rate(http_requests_total{service="app-canary-service",status=~"5.*"}[5m])) /
+        sum(rate(http_requests_total{service="app-canary-service"}[5m])) > 0.05
+      for: 2m
+      labels:
+        severity: critical
+        deployment: canary
+      annotations:
+        summary: "High error rate in canary deployment"
+        description: "Canary deployment has error rate above 5% for 2 minutes"
+    
+    - alert: CanaryHighLatency
+      expr: |
+        histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service="app-canary-service"}[5m])) by (le)) > 0.5
+      for: 2m
+      labels:
+        severity: warning
+        deployment: canary
+      annotations:
+        summary: "High latency in canary deployment"
+        description: "Canary deployment has 95th percentile latency above 500ms"
+
+---
+# ConfigMap for Canary Scripts
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: canary-scripts
+  namespace: production
+data:
+  canary-deploy.sh: |
+    #!/bin/bash
+    set -e
+    
+    NEW_IMAGE=$1
+    TRAFFIC_PERCENT=${2:-10}
+    
+    if [[ -z "$NEW_IMAGE" ]]; then
+        echo "Usage: $0 <new-image> [traffic-percent]"
+        exit 1
+    fi
+    
+    echo "Starting canary deployment with $TRAFFIC_PERCENT% traffic"
+    echo "New image: $NEW_IMAGE"
+    
+    # Update canary deployment
+    kubectl set image deployment/app-canary app=$NEW_IMAGE -n production
+    
+    # Wait for deployment
+    kubectl rollout status deployment/app-canary -n production --timeout=300s
+    
+    # Update canary ingress weight
+    kubectl patch ingress app-canary-ingress -n production -p \
+      '{"metadata":{"annotations":{"nginx.ingress.kubernetes.io/canary-weight":"'$TRAFFIC_PERCENT'"}}}'
+    
+    echo "Canary deployment started with $TRAFFIC_PERCENT% traffic"
+    echo "Monitor metrics and run promote-canary.sh or rollback-canary.sh"
+    
+  promote-canary.sh: |
+    #!/bin/bash
+    set -e
+    
+    echo "Promoting canary to stable..."
+    
+    # Get canary image
+    CANARY_IMAGE=$(kubectl get deployment app-canary -n production -o jsonpath='{.spec.template.spec.containers[0].image}')
+    
+    # Update stable deployment with canary image
+    kubectl set image deployment/app-stable app=$CANARY_IMAGE -n production
+    kubectl rollout status deployment/app-stable -n production --timeout=300s
+    
+    # Remove canary traffic
+    kubectl patch ingress app-canary-ingress -n production -p \
+      '{"metadata":{"annotations":{"nginx.ingress.kubernetes.io/canary-weight":"0"}}}'
+    
+    # Scale down canary
+    kubectl scale deployment app-canary --replicas=0 -n production
+    
+    echo "Canary promoted to stable successfully!"
+    
+  rollback-canary.sh: |
+    #!/bin/bash
+    set -e
+    
+    echo "Rolling back canary deployment..."
+    
+    # Remove canary traffic immediately
+    kubectl patch ingress app-canary-ingress -n production -p \
+      '{"metadata":{"annotations":{"nginx.ingress.kubernetes.io/canary-weight":"0"}}}'
+    
+    # Scale down canary
+    kubectl scale deployment app-canary --replicas=0 -n production
+    
+    echo "Canary rollback completed. All traffic routed to stable."
+    
+  status.sh: |
+    #!/bin/bash
+    
+    echo "=== Canary Deployment Status ==="
+    
+    # Get traffic split
+    CANARY_WEIGHT=$(kubectl get ingress app-canary-ingress -n production -o jsonpath='{.metadata.annotations.nginx\.ingress\.kubernetes\.io/canary-weight}')
+    echo "Canary traffic weight: ${CANARY_WEIGHT:-0}%"
+    
+    # Deployment status
+    echo ""
+    echo "Stable Deployment:"
+    kubectl get deployment app-stable -n production
+    
+    echo ""
+    echo "Canary Deployment:"
+    kubectl get deployment app-canary -n production
+    
+    # Pod status
+    echo ""
+    echo "Pods:"
+    kubectl get pods -l app=myapp -n production
+    
+    # Service status
+    echo ""
+    echo "Services:"
+    kubectl get services -l app=myapp -n production
+
+---
+# HorizontalPodAutoscaler for Stable
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: app-stable-hpa
+  namespace: production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: app-stable
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+
+---
+# HorizontalPodAutoscaler for Canary
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: app-canary-hpa
+  namespace: production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: app-canary
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70

@@ -1,0 +1,179 @@
+# File Location: concepts/06_security/runtime-security/falco-rules.yml
+
+# Custom Falco rules for Docker container security monitoring
+
+- required_engine_version: 0.31.0
+
+# Macros for common conditions
+- macro: container
+  condition: (container.id != host)
+
+- macro: spawned_process
+  condition: (evt.type = execve and evt.dir = <)
+
+- macro: container_entrypoint
+  condition: (not proc.pname exists or proc.pname in (runc:[0:PARENT], runc:[1:CHILD], runc, docker-runc, exe, docker-runc-cur))
+
+# Lists for expected behaviors
+- list: allowed_dev_files
+  items:
+    [
+      /dev/null,
+      /dev/stdin,
+      /dev/stdout,
+      /dev/stderr,
+      /dev/random,
+      /dev/urandom,
+      /dev/console,
+      /dev/kmsg,
+    ]
+
+- list: shell_binaries
+  items: [ash, bash, csh, ksh, sh, tcsh, zsh, dash]
+
+- list: sensitive_files
+  items:
+    [
+      /etc/passwd,
+      /etc/shadow,
+      /etc/group,
+      /etc/gshadow,
+      /etc/sudoers,
+      /etc/pam.conf,
+    ]
+
+# Rules
+
+# Rule: Detect shell spawned in container
+- rule: Shell Spawned in Container
+  desc: Detect shell process spawned in container
+  condition: >
+    spawned_process and container and
+    proc.name in (shell_binaries) and
+    not container_entrypoint
+  output: >
+    Shell spawned in container (user=%user.name user_loginuid=%user.loginuid command=%proc.cmdline 
+    container_id=%container.id container_name=%container.name image=%container.image.repository:%container.image.tag)
+  priority: WARNING
+  tags: [container, shell, mitre_execution]
+
+# Rule: Detect file modifications in /etc
+- rule: Write below etc
+  desc: Detect attempt to write file below /etc
+  condition: >
+    open_write and container and
+    fd.name startswith /etc and
+    not fd.name in (/etc/passwd-, /etc/group-, /etc/shadow-, /etc/gshadow-)
+  output: >
+    File below /etc opened for writing (user=%user.name user_loginuid=%user.loginuid command=%proc.cmdline 
+    file=%fd.name container_id=%container.id container_name=%container.name image=%container.image.repository:%container.image.tag)
+  priority: ERROR
+  tags: [container, filesystem, mitre_persistence]
+
+# Rule: Detect unexpected network connections
+- rule: Unexpected Network Connection
+  desc: Detect unexpected outbound network connections
+  condition: >
+    outbound and container and
+    not fd.sport in (53, 80, 443) and
+    not fd.sip.name in (google.com, github.com, registry-1.docker.io)
+  output: >
+    Unexpected network connection (user=%user.name user_loginuid=%user.loginuid command=%proc.cmdline 
+    connection=%fd.name container_id=%container.id container_name=%container.name image=%container.image.repository:%container.image.tag)
+  priority: WARNING
+  tags: [container, network, mitre_exfiltration]
+
+# Rule: Detect privilege escalation attempts
+- rule: Privilege Escalation via Setuid
+  desc: Detect privilege escalation via setuid programs
+  condition: >
+    spawned_process and container and
+    (proc.aname in (sudo, su, doas) or
+     (proc.name = sudo or proc.name = su))
+  output: >
+    Privilege escalation attempt detected (user=%user.name user_loginuid=%user.loginuid command=%proc.cmdline 
+    container_id=%container.id container_name=%container.name image=%container.image.repository:%container.image.tag)
+  priority: CRITICAL
+  tags: [container, privilege_escalation, mitre_privilege_escalation]
+
+# Rule: Detect sensitive file access
+- rule: Read Sensitive File
+  desc: Detect reading of sensitive files
+  condition: >
+    open_read and container and
+    fd.name in (sensitive_files) and
+    not proc.name in (id, whoami, getent)
+  output: >
+    Sensitive file opened for reading (user=%user.name user_loginuid=%user.loginuid command=%proc.cmdline 
+    file=%fd.name container_id=%container.id container_name=%container.name image=%container.image.repository:%container.image.tag)
+  priority: WARNING
+  tags: [container, filesystem, mitre_credential_access]
+
+# Rule: Detect package management activity
+- rule: Package Management Activity
+  desc: Detect package manager execution in container
+  condition: >
+    spawned_process and container and
+    proc.name in (apk, apt, apt-get, dpkg, rpm, yum, dnf, pacman, pip, pip3, npm, yarn)
+  output: >
+    Package manager executed in container (user=%user.name user_loginuid=%user.loginuid command=%proc.cmdline 
+    container_id=%container.id container_name=%container.name image=%container.image.repository:%container.image.tag)
+  priority: INFO
+  tags: [container, package_management]
+
+# Rule: Detect container escape attempts
+- rule: Container Escape Attempt
+  desc: Detect potential container escape attempts
+  condition: >
+    spawned_process and container and
+    (proc.cmdline contains "mount" or
+     proc.cmdline contains "nsenter" or
+     proc.cmdline contains "unshare" or
+     proc.cmdline contains "chroot")
+  output: >
+    Potential container escape attempt (user=%user.name user_loginuid=%user.loginuid command=%proc.cmdline 
+    container_id=%container.id container_name=%container.name image=%container.image.repository:%container.image.tag)
+  priority: CRITICAL
+  tags: [container, escape, mitre_privilege_escalation]
+
+# Rule: Detect crypto mining activity
+- rule: Crypto Mining Activity
+  desc: Detect potential cryptocurrency mining activity
+  condition: >
+    spawned_process and container and
+    (proc.name in (xmrig, minergate, cpuminer, cgminer, bfgminer) or
+     proc.cmdline contains "stratum" or
+     proc.cmdline contains "mining" or
+     proc.cmdline contains "cryptonight")
+  output: >
+    Cryptocurrency mining activity detected (user=%user.name user_loginuid=%user.loginuid command=%proc.cmdline 
+    container_id=%container.id container_name=%container.name image=%container.image.repository:%container.image.tag)
+  priority: CRITICAL
+  tags: [container, crypto_mining, mitre_impact]
+
+# Rule: Detect unexpected system call activity
+- rule: Unexpected System Call Activity
+  desc: Detect unusual system call patterns
+  condition: >
+    syscall and container and
+    evt.type in (clone, fork, vfork, execve) and
+    evt.arg.flags contains "CLONE_NEWPID"
+  output: >
+    Unexpected system call activity (user=%user.name user_loginuid=%user.loginuid syscall=%evt.type 
+    container_id=%container.id container_name=%container.name image=%container.image.repository:%container.image.tag)
+  priority: WARNING
+  tags: [container, syscall, mitre_execution]
+
+# Rule: Detect reverse shell activity
+- rule: Reverse Shell Activity
+  desc: Detect potential reverse shell connections
+  condition: >
+    spawned_process and container and
+    ((proc.name in (nc, ncat, netcat, netcat.openbsd, netcat.traditional) and
+      (proc.cmdline contains " -e " or proc.cmdline contains " -c ")) or
+     (proc.name in (bash, sh) and proc.cmdline contains "/dev/tcp/"))
+  output: >
+    Reverse shell activity detected (user=%user.name user_loginuid=%user.loginuid command=%proc.cmdline 
+    container_id=%container.id container_name=%container.name image=%container.image.repository:%container.image.tag)
+  priority: CRITICAL
+  tags: [container, reverse_shell, mitre_command_and_control]

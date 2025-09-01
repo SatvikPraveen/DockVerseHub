@@ -1,0 +1,333 @@
+# 09_advanced_tricks/Dockerfile.healthcheck
+
+# Multi-stage build with comprehensive health checks
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files for better caching
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy application code
+COPY . .
+
+# Build application
+RUN npm run build
+
+# Final stage with health checks
+FROM node:18-alpine AS final
+
+# Install health check dependencies
+RUN apk add --no-cache curl jq netcat-openbsd
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nextjs -u 1001 -G nodejs
+
+WORKDIR /app
+
+# Copy built application
+COPY --from=builder --chown=nextjs:nodejs /app/dist ./dist
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nextjs:nodejs /app/package.json ./
+
+# Create health check script
+COPY --chown=nextjs:nodejs <<EOF /usr/local/bin/healthcheck.sh
+#!/bin/sh
+set -e
+
+# Configuration
+HEALTH_URL="http://localhost:\${PORT:-3000}/health"
+TIMEOUT=10
+MAX_RETRIES=3
+
+# Logging function
+log() {
+    echo "[HEALTHCHECK] \$(date): \$1"
+}
+
+# Basic HTTP health check
+http_check() {
+    local url=\$1
+    local timeout=\$2
+    
+    if curl -sf --max-time \$timeout "\$url" >/dev/null 2>&1; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Detailed health check with JSON response validation
+detailed_check() {
+    local response
+    local status
+    local database_status
+    local memory_usage
+    
+    # Get health endpoint response
+    response=\$(curl -sf --max-time \$TIMEOUT "\$HEALTH_URL" 2>/dev/null) || {
+        log "ERROR: Health endpoint not responding"
+        return 1
+    }
+    
+    # Parse JSON response
+    status=\$(echo "\$response" | jq -r '.status' 2>/dev/null) || {
+        log "ERROR: Invalid JSON response"
+        return 1
+    }
+    
+    # Check main status
+    if [ "\$status" != "healthy" ]; then
+        log "ERROR: Service status is \$status"
+        return 1
+    fi
+    
+    # Check database connectivity (if present)
+    database_status=\$(echo "\$response" | jq -r '.checks.database // "unknown"' 2>/dev/null)
+    if [ "\$database_status" = "unhealthy" ]; then
+        log "WARNING: Database check failed"
+    fi
+    
+    # Check memory usage (if present)
+    memory_usage=\$(echo "\$response" | jq -r '.metrics.memory_usage_percent // 0' 2>/dev/null)
+    if [ "\$memory_usage" -gt 90 ]; then
+        log "WARNING: High memory usage: \${memory_usage}%"
+    fi
+    
+    # Check disk space
+    disk_usage=\$(df /app | awk 'NR==2 {print \$5}' | sed 's/%//')
+    if [ "\$disk_usage" -gt 85 ]; then
+        log "WARNING: High disk usage: \${disk_usage}%"
+    fi
+    
+    log "Health check passed - Status: \$status"
+    return 0
+}
+
+# Port connectivity check
+port_check() {
+    local port=\${PORT:-3000}
+    
+    if nc -z localhost \$port 2>/dev/null; then
+        log "Port \$port is accessible"
+        return 0
+    else
+        log "ERROR: Port \$port is not accessible"
+        return 1
+    fi
+}
+
+# Process check
+process_check() {
+    if pgrep -f "node.*dist/server.js" >/dev/null 2>&1; then
+        log "Application process is running"
+        return 0
+    else
+        log "ERROR: Application process not found"
+        return 1
+    fi
+}
+
+# Main health check logic
+main() {
+    local retries=0
+    
+    while [ \$retries -lt \$MAX_RETRIES ]; do
+        # Basic checks first
+        if ! port_check; then
+            log "Port check failed (attempt \$((retries + 1))/\$MAX_RETRIES)"
+        elif ! process_check; then
+            log "Process check failed (attempt \$((retries + 1))/\$MAX_RETRIES)"
+        elif ! detailed_check; then
+            log "Detailed health check failed (attempt \$((retries + 1))/\$MAX_RETRIES)"
+        else
+            log "All health checks passed"
+            exit 0
+        fi
+        
+        retries=\$((retries + 1))
+        if [ \$retries -lt \$MAX_RETRIES ]; then
+            sleep 2
+        fi
+    done
+    
+    log "Health check failed after \$MAX_RETRIES attempts"
+    exit 1
+}
+
+main "\$@"
+EOF
+
+# Make health check script executable
+RUN chmod +x /usr/local/bin/healthcheck.sh
+
+# Create application health endpoint
+COPY --chown=nextjs:nodejs <<EOF /app/dist/health.js
+const http = require('http');
+const fs = require('fs');
+const os = require('os');
+
+// Health check endpoint
+const healthCheck = (req, res) => {
+    const checks = {
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        status: 'healthy',
+        checks: {},
+        metrics: {}
+    };
+    
+    try {
+        // Memory usage check
+        const memUsage = process.memoryUsage();
+        const totalMem = os.totalmem();
+        const freeMem = os.freemem();
+        const memUsagePercent = ((totalMem - freeMem) / totalMem * 100).toFixed(2);
+        
+        checks.metrics = {
+            memory_usage: memUsage,
+            memory_usage_percent: parseFloat(memUsagePercent),
+            cpu_load: os.loadavg(),
+            free_memory: freeMem,
+            total_memory: totalMem
+        };
+        
+        // File system check
+        try {
+            fs.accessSync('/app', fs.constants.R_OK);
+            checks.checks.filesystem = 'healthy';
+        } catch (err) {
+            checks.checks.filesystem = 'unhealthy';
+            checks.status = 'degraded';
+        }
+        
+        // Environment check
+        checks.checks.environment = process.env.NODE_ENV || 'unknown';
+        
+        // Database check (mock - replace with actual database check)
+        checks.checks.database = 'healthy'; // This should be an actual database ping
+        
+        // Response time check
+        const startTime = process.hrtime();
+        setTimeout(() => {
+            const diff = process.hrtime(startTime);
+            const responseTime = diff[0] * 1000 + diff[1] * 1e-6;
+            checks.metrics.response_time_ms = responseTime.toFixed(2);
+        }, 0);
+        
+        // Set response status based on checks
+        const statusCode = checks.status === 'healthy' ? 200 : 503;
+        
+        res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(checks, null, 2));
+        
+    } catch (error) {
+        checks.status = 'unhealthy';
+        checks.error = error.message;
+        
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(checks, null, 2));
+    }
+};
+
+module.exports = { healthCheck };
+EOF
+
+# Switch to non-root user
+USER nextjs
+
+# Expose port
+EXPOSE 3000
+
+# Environment variables
+ENV NODE_ENV=production
+ENV PORT=3000
+
+# Multiple health check configurations
+
+# Basic HTTP health check (fast)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:3000/health || exit 1
+
+# Alternative: More comprehensive health check (slower but thorough)
+# HEALTHCHECK --interval=60s --timeout=30s --start-period=60s --retries=3 \
+#     CMD /usr/local/bin/healthcheck.sh
+
+# Alternative: Custom health check with specific requirements
+# HEALTHCHECK --interval=45s --timeout=15s --start-period=45s --retries=2 \
+#     CMD curl -f -H "Accept: application/json" http://localhost:3000/health | \
+#         jq -e '.status == "healthy"' > /dev/null || exit 1
+
+# Graceful shutdown script
+COPY --chown=nextjs:nodejs <<EOF /usr/local/bin/shutdown.sh
+#!/bin/sh
+set -e
+
+log() {
+    echo "[SHUTDOWN] \$(date): \$1"
+}
+
+# Graceful shutdown function
+graceful_shutdown() {
+    log "Received shutdown signal"
+    
+    # Stop accepting new connections
+    log "Stopping new connections..."
+    
+    # Wait for existing connections to complete (max 30 seconds)
+    log "Waiting for existing connections to complete..."
+    
+    local wait_time=0
+    local max_wait=30
+    
+    while [ \$wait_time -lt \$max_wait ]; do
+        # Check if there are active connections
+        # This is application-specific logic
+        local active_connections=\$(netstat -tn 2>/dev/null | grep ":3000" | grep ESTABLISHED | wc -l)
+        
+        if [ \$active_connections -eq 0 ]; then
+            log "All connections closed"
+            break
+        fi
+        
+        log "Waiting for \$active_connections connections to close..."
+        sleep 2
+        wait_time=\$((wait_time + 2))
+    done
+    
+    if [ \$wait_time -ge \$max_wait ]; then
+        log "Timeout reached, forcing shutdown"
+    fi
+    
+    log "Shutdown complete"
+    exit 0
+}
+
+# Set up signal handlers
+trap graceful_shutdown TERM INT
+
+# Start the application
+log "Starting application..."
+exec "\$@"
+EOF
+
+RUN chmod +x /usr/local/bin/shutdown.sh
+
+# Use shutdown script as entrypoint
+ENTRYPOINT ["/usr/local/bin/shutdown.sh"]
+
+# Default command
+CMD ["node", "dist/server.js"]
+
+# Labels for better container management
+LABEL maintainer="devops@company.com" \
+      version="1.0.0" \
+      description="Node.js application with comprehensive health checks" \
+      health.check.endpoint="/health" \
+      health.check.interval="30s" \
+      health.check.timeout="10s" \
+      health.check.retries="3"

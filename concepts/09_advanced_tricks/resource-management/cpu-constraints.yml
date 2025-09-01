@@ -1,0 +1,365 @@
+# 09_advanced_tricks/resource-management/cpu-constraints.yml
+
+version: '3.8'
+
+services:
+  # Example 1: Basic CPU limits
+  web-server:
+    image: nginx:alpine
+    container_name: web-cpu-basic
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'  # 50% of one CPU core
+        reservations:
+          cpus: '0.25'  # Reserve 25% of one core
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
+      interval: 30s
+
+  # Example 2: CPU shares (relative weights)
+  background-worker:
+    image: alpine:latest
+    container_name: worker-cpu-shares
+    cpu_shares: 512  # Half the default weight (1024)
+    command: |
+      sh -c '
+      echo "Background worker with reduced CPU priority..."
+      while true; do
+        echo "Processing background task $(date)"
+        # Simulate CPU work
+        dd if=/dev/zero of=/dev/null bs=1M count=100 2>/dev/null
+        sleep 10
+      done
+      '
+
+  # Example 3: CPU-intensive application with limits
+  compute-service:
+    image: python:3.11-alpine
+    container_name: compute-cpu-intensive
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'  # Maximum 2 CPU cores
+        reservations:
+          cpus: '1.0'  # Reserve 1 CPU core
+    cpuset: "0,1"  # Pin to specific CPU cores 0 and 1
+    command: |
+      sh -c '
+      pip install psutil numpy &&
+      cat > compute.py << "EOF"
+import time
+import psutil
+import numpy as np
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor
+import os
+
+def cpu_intensive_task(n):
+    """CPU-intensive matrix multiplication"""
+    print(f"Process {os.getpid()}: Starting task {n}")
+    
+    # Generate random matrices
+    size = 500
+    a = np.random.rand(size, size)
+    b = np.random.rand(size, size)
+    
+    # Perform matrix multiplication
+    result = np.dot(a, b)
+    
+    print(f"Process {os.getpid()}: Completed task {n}")
+    return np.sum(result)
+
+def monitor_cpu():
+    """Monitor CPU usage"""
+    cpu_count = psutil.cpu_count()
+    cpu_usage = psutil.cpu_percent(interval=1)
+    load_avg = psutil.getloadavg()
+    
+    print(f"CPU cores: {cpu_count}")
+    print(f"CPU usage: {cpu_usage}%")
+    print(f"Load average: {load_avg}")
+
+def main():
+    print("Starting CPU-intensive compute service...")
+    print("Available CPU cores:", mp.cpu_count())
+    
+    # Monitor initial state
+    monitor_cpu()
+    
+    # Run CPU-intensive tasks
+    num_tasks = 8
+    max_workers = 2  # Limited by CPU constraints
+    
+    print(f"\\nRunning {num_tasks} tasks with {max_workers} workers...")
+    
+    start_time = time.time()
+    
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(cpu_intensive_task, i) for i in range(num_tasks)]
+        results = [future.result() for future in futures]
+    
+    end_time = time.time()
+    
+    print(f"\\nCompleted {num_tasks} tasks in {end_time - start_time:.2f} seconds")
+    print(f"Results: {len(results)} tasks completed")
+    
+    # Final CPU monitoring
+    monitor_cpu()
+
+if __name__ == "__main__":
+    main()
+EOF
+      python compute.py
+      '
+
+  # Example 4: Database with CPU tuning
+  database:
+    image: postgres:15-alpine
+    container_name: postgres-cpu-tuned
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+        reservations:
+          cpus: '1.0'
+    environment:
+      - POSTGRES_DB=testdb
+      - POSTGRES_USER=testuser
+      - POSTGRES_PASSWORD=testpass
+    command: |
+      postgres
+      -c max_worker_processes=4
+      -c max_parallel_workers_per_gather=2
+      -c max_parallel_workers=4
+      -c max_parallel_maintenance_workers=2
+
+  # Example 5: Real-time application (high priority)
+  realtime-app:
+    image: alpine:latest
+    container_name: realtime-cpu-priority
+    cpu_shares: 2048  # Double the default priority
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+        reservations:
+          cpus: '0.8'
+    command: |
+      sh -c '
+      echo "Real-time application with high CPU priority..."
+      
+      # Install stress testing tools
+      apk add --no-cache stress-ng
+      
+      while true; do
+        echo "High-priority task executing $(date)"
+        
+        # Simulate real-time processing
+        stress-ng --cpu 1 --cpu-load 50 --timeout 5s --quiet
+        
+        sleep 2
+      done
+      '
+
+  # Example 6: Batch processing (low priority)
+  batch-processor:
+    image: alpine:latest
+    container_name: batch-cpu-low-priority
+    cpu_shares: 256  # Quarter of default priority
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+        reservations:
+          cpus: '0.1'
+    profiles:
+      - batch
+    command: |
+      sh -c '
+      apk add --no-cache stress-ng
+      
+      echo "Batch processor with low CPU priority..."
+      
+      for i in $(seq 1 10); do
+        echo "Batch job $i/10 starting $(date)"
+        
+        # Simulate batch processing work
+        stress-ng --cpu 1 --cpu-load 80 --timeout 30s --quiet
+        
+        echo "Batch job $i/10 completed $(date)"
+        sleep 5
+      done
+      
+      echo "All batch jobs completed"
+      '
+
+  # Example 7: Node.js application with CPU optimization
+  nodejs-app:
+    image: node:18-alpine
+    container_name: nodejs-cpu-optimized
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+        reservations:
+          cpus: '0.5'
+    environment:
+      - UV_THREADPOOL_SIZE=4  # Optimize libuv thread pool
+    command: |
+      sh -c '
+      cat > server.js << "EOF"
+const http = require("http");
+const cluster = require("cluster");
+const os = require("os");
+const crypto = require("crypto");
+
+if (cluster.isMaster) {
+    const numCPUs = os.cpus().length;
+    const maxWorkers = Math.min(numCPUs, 2); // Limit workers based on CPU constraints
+    
+    console.log(`Master process ${process.pid} starting...`);
+    console.log(`Available CPUs: ${numCPUs}, Starting ${maxWorkers} workers`);
+    
+    // Fork workers
+    for (let i = 0; i < maxWorkers; i++) {
+        cluster.fork();
+    }
+    
+    cluster.on("exit", (worker, code, signal) => {
+        console.log(`Worker ${worker.process.pid} died`);
+        cluster.fork(); // Restart worker
+    });
+    
+} else {
+    // Worker process
+    const server = http.createServer((req, res) => {
+        if (req.url === "/health") {
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ status: "healthy", worker: process.pid }));
+        } else if (req.url === "/cpu-task") {
+            // CPU-intensive task
+            const start = Date.now();
+            
+            // Perform some CPU work
+            for (let i = 0; i < 100000; i++) {
+                crypto.createHash("sha256").update(String(i)).digest("hex");
+            }
+            
+            const duration = Date.now() - start;
+            
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ 
+                worker: process.pid, 
+                duration: duration + "ms",
+                cpuUsage: process.cpuUsage()
+            }));
+        } else {
+            res.writeHead(404);
+            res.end("Not found");
+        }
+    });
+    
+    server.listen(3000, () => {
+        console.log(`Worker ${process.pid} listening on port 3000`);
+    });
+}
+EOF
+      node server.js
+      '
+
+  # Example 8: CPU monitoring and alerting
+  cpu-monitor:
+    image: alpine:latest
+    container_name: cpu-monitor
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+    command: |
+      sh -c '
+      apk add --no-cache curl procps
+      
+      monitor_cpu_usage() {
+        echo "=== CPU Usage Report $(date) ==="
+        
+        # System-wide CPU usage
+        echo "System CPU Usage:"
+        cat /host/proc/loadavg
+        
+        # Per-container CPU usage via docker stats
+        echo "\\nContainer CPU Usage:"
+        timeout 5 sh -c "
+          while read line; do
+            echo \"$line\"
+          done < <(
+            wget -qO- --timeout=3 http://localhost/v1.41/containers/json 2>/dev/null | 
+            head -10 || echo \"Docker API not accessible\"
+          )
+        "
+        
+        echo "================================="
+      }
+      
+      while true; do
+        monitor_cpu_usage
+        sleep 30
+      done
+      '
+
+  # Example 9: CPU stress testing
+  cpu-stress:
+    image: alpine:latest
+    container_name: cpu-stress-test
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+        reservations:
+          cpus: '1.0'
+    profiles:
+      - stress
+    command: |
+      sh -c '
+      apk add --no-cache stress-ng htop
+      
+      echo "Starting CPU stress tests..."
+      
+      # Test 1: Single core stress
+      echo "Test 1: Single core CPU stress (30s)"
+      stress-ng --cpu 1 --cpu-load 100 --timeout 30s
+      
+      # Test 2: Multi-core stress  
+      echo "Test 2: Multi-core CPU stress (30s)"
+      stress-ng --cpu 2 --cpu-load 75 --timeout 30s
+      
+      # Test 3: CPU with memory stress
+      echo "Test 3: Combined CPU and memory stress (30s)"
+      stress-ng --cpu 1 --vm 1 --vm-bytes 128M --timeout 30s
+      
+      # Test 4: Context switching stress
+      echo "Test 4: Context switching stress (30s)"
+      stress-ng --switch 4 --timeout 30s
+      
+      echo "CPU stress tests completed"
+      '
+
+networks:
+  default:
+    driver: bridge
+
+# Usage examples:
+#
+# Start all services:
+# docker-compose -f cpu-constraints.yml up -d
+#
+# Run batch processing:
+# docker-compose -f cpu-constraints.yml --profile batch up batch-processor
+#
+# Run stress tests:
+# docker-compose -f cpu-constraints.yml --profile stress up cpu-stress
+#
+# Monitor CPU usage:
+# docker stats --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}"
+#
+# Check CPU constraints:
+# docker inspect <container> --format='{{.HostConfig.CpuQuota}} {{.HostConfig.CpuPeriod}}'

@@ -1,0 +1,431 @@
+# File: .github/workflows/performance-test.yml
+name: Performance Regression Testing
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "**/Dockerfile*"
+      - "**/docker-compose*.yml"
+      - "labs/**"
+      - "concepts/**"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "**/Dockerfile*"
+      - "**/docker-compose*.yml"
+      - "labs/**"
+      - "concepts/**"
+  schedule:
+    # Run performance tests weekly on Sundays at 3 AM UTC
+    - cron: "0 3 * * 0"
+
+env:
+  DOCKER_BUILDKIT: 1
+
+jobs:
+  build-performance:
+    name: Docker Build Performance Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dockerfile:
+          - path: concepts/01_getting_started/Dockerfile
+            context: concepts/01_getting_started
+            name: getting-started
+          - path: concepts/02_images_layers/Dockerfile.optimized
+            context: concepts/02_images_layers
+            name: optimized-layers
+          - path: labs/lab_01_simple_app/Dockerfile
+            context: labs/lab_01_simple_app
+            name: simple-app
+          - path: .devcontainer/Dockerfile
+            context: .devcontainer
+            name: devcontainer
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Warm up Docker daemon
+        run: docker info
+
+      - name: Build Performance Test - Cold Build
+        run: |
+          echo "🔥 Testing cold build performance for ${{ matrix.name }}"
+
+          # Clear build cache
+          docker builder prune -f
+
+          # Time the cold build
+          echo "## Build Performance Report: ${{ matrix.name }}" > build-perf-${{ matrix.name }}.md
+          echo "Generated: $(date)" >> build-perf-${{ matrix.name }}.md
+          echo "" >> build-perf-${{ matrix.name }}.md
+
+          start_time=$(date +%s)
+          if docker build -t perf-test-${{ matrix.name }}:cold \
+             -f ${{ matrix.dockerfile }} \
+             ${{ matrix.context }}; then
+            end_time=$(date +%s)
+            cold_build_time=$((end_time - start_time))
+            echo "✅ **Cold Build Time:** ${cold_build_time}s" >> build-perf-${{ matrix.name }}.md
+          else
+            echo "❌ Cold build failed" >> build-perf-${{ matrix.name }}.md
+            exit 1
+          fi
+
+      - name: Build Performance Test - Warm Build
+        run: |
+          echo "🔥 Testing warm build performance for ${{ matrix.name }}"
+
+          # Time the warm build (should be faster due to caching)
+          start_time=$(date +%s)
+          docker build -t perf-test-${{ matrix.name }}:warm \
+             -f ${{ matrix.dockerfile }} \
+             ${{ matrix.context }}
+          end_time=$(date +%s)
+          warm_build_time=$((end_time - start_time))
+
+          echo "✅ **Warm Build Time:** ${warm_build_time}s" >> build-perf-${{ matrix.name }}.md
+
+      - name: Image Size Analysis
+        run: |
+          echo "" >> build-perf-${{ matrix.name }}.md
+          echo "## Image Analysis" >> build-perf-${{ matrix.name }}.md
+
+          # Get image size
+          image_size=$(docker images perf-test-${{ matrix.name }}:cold --format "{{.Size}}")
+          echo "📦 **Image Size:** $image_size" >> build-perf-${{ matrix.name }}.md
+
+          # Count layers
+          layer_count=$(docker history perf-test-${{ matrix.name }}:cold --format "{{.CreatedBy}}" | wc -l)
+          echo "📋 **Layer Count:** $layer_count" >> build-perf-${{ matrix.name }}.md
+
+          # Analyze image with dive if possible
+          if command -v dive &> /dev/null; then
+            echo "" >> build-perf-${{ matrix.name }}.md
+            echo "### Layer Analysis" >> build-perf-${{ matrix.name }}.md
+            dive perf-test-${{ matrix.name }}:cold --ci >> build-perf-${{ matrix.name }}.md || true
+          fi
+
+      - name: Performance Thresholds Check
+        run: |
+          echo "" >> build-perf-${{ matrix.name }}.md
+          echo "## Performance Thresholds" >> build-perf-${{ matrix.name }}.md
+
+          # Define performance thresholds (in seconds)
+          case "${{ matrix.name }}" in
+            "getting-started")
+              threshold=30
+              ;;
+            "optimized-layers")
+              threshold=60
+              ;;
+            "simple-app")
+              threshold=45
+              ;;
+            "devcontainer")
+              threshold=300
+              ;;
+            *)
+              threshold=120
+              ;;
+          esac
+
+          if [ $cold_build_time -gt $threshold ]; then
+            echo "⚠️ **Performance Warning:** Cold build time (${cold_build_time}s) exceeds threshold (${threshold}s)" >> build-perf-${{ matrix.name }}.md
+          else
+            echo "✅ **Performance:** Build time within acceptable threshold" >> build-perf-${{ matrix.name }}.md
+          fi
+
+      - name: Upload build performance report
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-performance-${{ matrix.name }}
+          path: build-perf-${{ matrix.name }}.md
+          retention-days: 30
+
+  runtime-performance:
+    name: Container Runtime Performance Test
+    runs-on: ubuntu-latest
+    needs: [build-performance]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up monitoring tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sysstat htop
+
+      - name: Test Simple App Performance
+        if: always()
+        run: |
+          cd labs/lab_01_simple_app
+
+          echo "# Runtime Performance Report" > ../runtime-perf-report.md
+          echo "Generated: $(date)" >> ../runtime-perf-report.md
+          echo "" >> ../runtime-perf-report.md
+
+          echo "## Simple App Performance Test" >> ../runtime-perf-report.md
+
+          # Build the app
+          docker build -t runtime-test-app .
+
+          # Test startup time
+          echo "### Container Startup Performance" >> ../runtime-perf-report.md
+          start_time=$(date +%s.%N)
+          container_id=$(docker run -d -p 5000:5000 runtime-test-app)
+
+          # Wait for container to be ready
+          sleep 5
+          end_time=$(date +%s.%N)
+          startup_time=$(echo "$end_time - $start_time" | bc)
+
+          echo "⏱️ **Startup Time:** ${startup_time}s" >> ../runtime-perf-report.md
+
+          # Test memory usage
+          memory_usage=$(docker stats $container_id --no-stream --format "{{.MemUsage}}")
+          echo "🧠 **Memory Usage:** $memory_usage" >> ../runtime-perf-report.md
+
+          # Test CPU usage
+          cpu_usage=$(docker stats $container_id --no-stream --format "{{.CPUPerc}}")
+          echo "⚡ **CPU Usage:** $cpu_usage" >> ../runtime-perf-report.md
+
+          docker stop $container_id
+          docker rm $container_id
+
+      - name: Test Multi-Container Performance
+        if: always()
+        run: |
+          cd labs/lab_02_multi_container_compose
+
+          echo "" >> ../runtime-perf-report.md
+          echo "## Multi-Container Stack Performance" >> ../runtime-perf-report.md
+
+          # Test docker-compose startup time
+          start_time=$(date +%s.%N)
+          docker-compose up -d
+
+          # Wait for all services to be ready
+          sleep 15
+          end_time=$(date +%s.%N)
+          compose_startup_time=$(echo "$end_time - $start_time" | bc)
+
+          echo "⏱️ **Compose Stack Startup Time:** ${compose_startup_time}s" >> ../runtime-perf-report.md
+
+          # Get resource usage for all containers
+          echo "### Resource Usage by Service" >> ../runtime-perf-report.md
+          docker-compose ps --format "table" >> ../runtime-perf-report.md
+
+          echo "" >> ../runtime-perf-report.md
+          docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}" >> ../runtime-perf-report.md
+
+          docker-compose down
+
+      - name: Network Performance Test
+        if: always()
+        run: |
+          echo "" >> runtime-perf-report.md
+          echo "## Network Performance Test" >> runtime-perf-report.md
+
+          # Create test network
+          docker network create perf-test-net
+
+          # Start nginx container
+          docker run -d --name nginx-perf --network perf-test-net nginx:alpine
+
+          # Start test client container
+          docker run --rm --network perf-test-net \
+            curlimages/curl:latest \
+            -w "Connect: %{time_connect}s\nTTFB: %{time_starttransfer}s\nTotal: %{time_total}s\n" \
+            -o /dev/null -s \
+            http://nginx-perf/ >> runtime-perf-report.md || true
+
+          # Cleanup
+          docker stop nginx-perf
+          docker rm nginx-perf
+          docker network rm perf-test-net
+
+      - name: Disk I/O Performance Test
+        if: always()
+        run: |
+          echo "" >> runtime-perf-report.md
+          echo "## Disk I/O Performance Test" >> runtime-perf-report.md
+
+          # Test volume performance
+          docker volume create perf-test-vol
+
+          # Write test
+          write_time=$(docker run --rm -v perf-test-vol:/test \
+            alpine:latest sh -c "
+              time dd if=/dev/zero of=/test/testfile bs=1M count=100 2>&1 | grep real | awk '{print \$2}'
+            ")
+          echo "📝 **Write Performance:** $write_time" >> runtime-perf-report.md
+
+          # Read test
+          read_time=$(docker run --rm -v perf-test-vol:/test \
+            alpine:latest sh -c "
+              time dd if=/test/testfile of=/dev/null bs=1M 2>&1 | grep real | awk '{print \$2}'
+            ")
+          echo "📖 **Read Performance:** $read_time" >> runtime-perf-report.md
+
+          # Cleanup
+          docker volume rm perf-test-vol
+
+      - name: Upload runtime performance report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: runtime-performance-report
+          path: runtime-perf-report.md
+          retention-days: 30
+
+  load-testing:
+    name: Load Testing
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up load testing tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apache2-utils wrk
+
+      - name: Load Test Simple Web App
+        run: |
+          cd labs/lab_01_simple_app
+
+          echo "# Load Testing Report" > ../load-test-report.md
+          echo "Generated: $(date)" >> ../load-test-report.md
+          echo "" >> ../load-test-report.md
+
+          # Build and start the app
+          docker build -t load-test-app .
+          container_id=$(docker run -d -p 5000:5000 load-test-app)
+
+          # Wait for app to be ready
+          sleep 10
+
+          echo "## Load Test Results" >> ../load-test-report.md
+
+          # Apache Bench test
+          echo "### Apache Bench (ab) Test" >> ../load-test-report.md
+          echo "Concurrent users: 10, Requests: 1000" >> ../load-test-report.md
+          echo '```' >> ../load-test-report.md
+          ab -n 1000 -c 10 http://localhost:5000/ >> ../load-test-report.md 2>&1 || true
+          echo '```' >> ../load-test-report.md
+
+          # Monitor container resources during load
+          echo "" >> ../load-test-report.md
+          echo "### Resource Usage During Load" >> ../load-test-report.md
+          docker stats $container_id --no-stream --format "CPU: {{.CPUPerc}}, Memory: {{.MemUsage}}" >> ../load-test-report.md
+
+          docker stop $container_id
+          docker rm $container_id
+
+      - name: Stress Test Multi-Container Setup
+        run: |
+          cd labs/lab_02_multi_container_compose
+
+          echo "" >> ../load-test-report.md
+          echo "## Multi-Container Stress Test" >> ../load-test-report.md
+
+          # Start the stack
+          docker-compose up -d
+          sleep 20
+
+          # Find web service port
+          web_port=$(docker-compose port api 8080 2>/dev/null | cut -d: -f2 || echo "8080")
+
+          if curl -s http://localhost:$web_port/health >/dev/null 2>&1; then
+            echo "✅ **Service Health:** API endpoint responding" >> ../load-test-report.md
+            
+            # Light load test
+            echo "### Light Load Test on API" >> ../load-test-report.md
+            echo '```' >> ../load-test-report.md
+            ab -n 100 -c 5 http://localhost:$web_port/health >> ../load-test-report.md 2>&1 || true
+            echo '```' >> ../load-test-report.md
+          else
+            echo "⚠️ **Service Health:** API endpoint not responding" >> ../load-test-report.md
+          fi
+
+          # Resource usage during load
+          echo "" >> ../load-test-report.md
+          echo "### Stack Resource Usage" >> ../load-test-report.md
+          docker-compose ps >> ../load-test-report.md
+          echo "" >> ../load-test-report.md
+          docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}" >> ../load-test-report.md
+
+          docker-compose down
+
+      - name: Upload load test report
+        uses: actions/upload-artifact@v3
+        with:
+          name: load-test-report
+          path: load-test-report.md
+          retention-days: 30
+
+  performance-regression:
+    name: Performance Regression Analysis
+    runs-on: ubuntu-latest
+    needs: [build-performance, runtime-performance, load-testing]
+    if: always()
+    steps:
+      - name: Download performance artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: performance-reports
+
+      - name: Analyze performance regression
+        run: |
+          echo "# 📊 Performance Regression Analysis" > performance-summary.md
+          echo "Generated: $(date)" >> performance-summary.md
+          echo "" >> performance-summary.md
+
+          echo "## 🎯 Performance Summary" >> performance-summary.md
+          echo "| Test Category | Status |" >> performance-summary.md
+          echo "|---------------|---------|" >> performance-summary.md
+          echo "| Build Performance | ${{ needs.build-performance.result }} |" >> performance-summary.md
+          echo "| Runtime Performance | ${{ needs.runtime-performance.result }} |" >> performance-summary.md
+          echo "| Load Testing | ${{ needs.load-testing.result }} |" >> performance-summary.md
+          echo "" >> performance-summary.md
+
+          echo "## 📈 Key Metrics" >> performance-summary.md
+          echo "### Build Performance" >> performance-summary.md
+
+          # Extract key metrics from build reports if they exist
+          for report in performance-reports/build-performance-*/build-perf-*.md; do
+            if [ -f "$report" ]; then
+              name=$(basename "$report" | sed 's/build-perf-//' | sed 's/.md//')
+              echo "#### $name" >> performance-summary.md
+              grep -E "(Cold Build Time|Image Size|Layer Count)" "$report" >> performance-summary.md || true
+              echo "" >> performance-summary.md
+            fi
+          done
+
+          echo "## 🚀 Optimization Recommendations" >> performance-summary.md
+          echo "1. **Build Optimization**" >> performance-summary.md
+          echo "   - Use multi-stage builds to reduce image size" >> performance-summary.md
+          echo "   - Optimize layer caching by ordering Dockerfile instructions" >> performance-summary.md
+          echo "   - Use .dockerignore to exclude unnecessary files" >> performance-summary.md
+          echo "" >> performance-summary.md
+          echo "2. **Runtime Optimization**" >> performance-summary.md
+          echo "   - Set appropriate resource limits" >> performance-summary.md
+          echo "   - Use health checks for better orchestration" >> performance-summary.md
+          echo "   - Monitor memory leaks and CPU usage patterns" >> performance-summary.md
+          echo "" >> performance-summary.md
+          echo "3. **Load Testing Insights**" >> performance-summary.md
+          echo "   - Identify bottlenecks under concurrent load" >> performance-summary.md
+          echo "   - Scale horizontally for better performance" >> performance-summary.md
+          echo "   - Implement caching strategies" >> performance-summary.md
+
+      - name: Upload performance summary
+        uses: actions/upload-artifact@v3
+        with:
+          name: performance-regression-analysis
+          path: performance-summary.md
+          retention-days: 90

@@ -1,0 +1,407 @@
+# 09_advanced_tricks/resource-management/storage-quotas.yml
+
+version: "3.8"
+
+services:
+  # Example 1: Application with storage quotas using tmpfs
+  web-app-limited:
+    image: nginx:alpine
+    container_name: web-storage-limited
+    tmpfs:
+      - /tmp:size=100m,uid=1000,gid=1000,mode=1700
+      - /var/cache/nginx:size=50m
+    volumes:
+      - type: bind
+        source: ./logs
+        target: /var/log/nginx
+        bind:
+          create_host_path: true
+      - type: volume
+        source: web_data
+        target: /usr/share/nginx/html
+        volume:
+          nocopy: true
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    storage_opt:
+      size: "1G" # Limit container root filesystem to 1GB
+    healthcheck:
+      test: ["CMD", "df", "-h"]
+      interval: 30s
+
+  # Example 2: Database with storage quotas and monitoring
+  database-quota:
+    image: postgres:15-alpine
+    container_name: postgres-storage-quota
+    environment:
+      - POSTGRES_DB=testdb
+      - POSTGRES_USER=testuser
+      - POSTGRES_PASSWORD=testpass
+    volumes:
+      - type: volume
+        source: postgres_data
+        target: /var/lib/postgresql/data
+        volume:
+          nocopy: false
+    tmpfs:
+      - /tmp:size=200m
+      - /var/run/postgresql:size=10m
+    storage_opt:
+      size: "2G"
+    command: |
+      sh -c '
+      # Create storage monitoring script
+      cat > /docker-entrypoint-initdb.d/storage_monitor.sql << "EOF"
+      CREATE OR REPLACE FUNCTION monitor_database_size() 
+      RETURNS TABLE(database_name text, size_bytes bigint, size_pretty text) AS $$
+      BEGIN
+          RETURN QUERY
+          SELECT datname::text, 
+                 pg_database_size(datname) as size_bytes,
+                 pg_size_pretty(pg_database_size(datname)) as size_pretty
+          FROM pg_database 
+          WHERE datname NOT IN ('"'"'template0'"'"', '"'"'template1'"'"');
+      END;
+      $$ LANGUAGE plpgsql;
+
+      CREATE OR REPLACE FUNCTION check_storage_quota()
+      RETURNS void AS $$
+      DECLARE
+          total_size bigint;
+          quota_limit bigint := 1073741824; -- 1GB limit
+      BEGIN
+          SELECT sum(pg_database_size(datname)) INTO total_size
+          FROM pg_database 
+          WHERE datname NOT IN ('"'"'template0'"'"', '"'"'template1'"'"');
+          
+          IF total_size > quota_limit THEN
+              RAISE WARNING '"'"'Database size % exceeds quota limit %'"'"', 
+                      pg_size_pretty(total_size), pg_size_pretty(quota_limit);
+          END IF;
+      END;
+      $$ LANGUAGE plpgsql;
+      EOF
+
+      # Start PostgreSQL
+      docker-entrypoint.sh postgres
+      '
+
+  # Example 3: Log aggregator with rotation and quotas
+  log-aggregator:
+    image: alpine:latest
+    container_name: log-storage-managed
+    volumes:
+      - type: volume
+        source: logs_data
+        target: /var/log
+    tmpfs:
+      - /tmp:size=100m
+    storage_opt:
+      size: "500M"
+    command: |
+      sh -c '
+      apk add --no-cache logrotate dcron
+
+      # Create logrotate configuration
+      cat > /etc/logrotate.d/app-logs << "EOF"
+      /var/log/*.log {
+          daily
+          rotate 5
+          compress
+          delaycompress
+          missingok
+          notifempty
+          create 644 root root
+          maxsize 10M
+          postrotate
+              echo "Log rotated at $(date)" >> /var/log/rotation.log
+          endscript
+      }
+      EOF
+
+      # Create log monitoring script
+      cat > /usr/local/bin/log-monitor.sh << "EOF"
+      #!/bin/sh
+      while true; do
+          # Monitor disk usage
+          USAGE=$(df /var/log | tail -1 | awk "{print \$5}" | sed "s/%//")
+          SIZE=$(du -sh /var/log | cut -f1)
+          
+          echo "$(date): Log directory usage: $SIZE ($USAGE%)"
+          
+          # Alert if usage > 80%
+          if [ $USAGE -gt 80 ]; then
+              echo "WARNING: Log storage usage above 80%!"
+              # Force log rotation
+              logrotate -f /etc/logrotate.d/app-logs
+          fi
+          
+          # Generate sample logs
+          echo "$(date): Sample application log entry" >> /var/log/app.log
+          
+          sleep 60
+      done
+      EOF
+
+      chmod +x /usr/local/bin/log-monitor.sh
+
+      # Start cron and monitoring
+      crond -d 8 &
+      /usr/local/bin/log-monitor.sh
+      '
+
+  # Example 4: Cache service with automatic cleanup
+  cache-service:
+    image: redis:7-alpine
+    container_name: redis-storage-quota
+    volumes:
+      - type: volume
+        source: redis_data
+        target: /data
+    tmpfs:
+      - /tmp:size=50m
+    storage_opt:
+      size: "300M"
+    command: |
+      sh -c '
+      # Start Redis with memory and storage policies
+      redis-server \
+        --maxmemory 100mb \
+        --maxmemory-policy allkeys-lru \
+        --save 900 1 \
+        --save 300 10 \
+        --save 60 10000 \
+        --dir /data \
+        --dbfilename dump.rdb &
+
+      REDIS_PID=$!
+
+      # Storage monitoring loop
+      while true; do
+          STORAGE_USAGE=$(du -sh /data | cut -f1)
+          echo "$(date): Redis storage usage: $STORAGE_USAGE"
+          
+          # Check storage usage
+          USAGE_BYTES=$(du -s /data | cut -f1)
+          LIMIT_BYTES=204800  # 200MB in KB
+          
+          if [ $USAGE_BYTES -gt $LIMIT_BYTES ]; then
+              echo "Storage quota exceeded, triggering cleanup..."
+              redis-cli BGREWRITEAOF
+              redis-cli FLUSHALL
+          fi
+          
+          sleep 300  # Check every 5 minutes
+      done
+      '
+
+  # Example 5: File processing with quota enforcement
+  file-processor:
+    image: alpine:latest
+    container_name: file-processor-quota
+    volumes:
+      - type: bind
+        source: ./input
+        target: /input
+        read_only: true
+      - type: volume
+        source: processing_data
+        target: /output
+    tmpfs:
+      - /tmp:size=200m
+    storage_opt:
+      size: "1G"
+    command: |
+      sh -c '
+      apk add --no-cache inotify-tools
+
+      # Create input directory if not exists
+      mkdir -p /input /output/processed /output/failed
+
+      # File processing function
+      process_file() {
+          local file="$1"
+          local filename=$(basename "$file")
+          
+          echo "Processing: $filename"
+          
+          # Check available space before processing
+          AVAILABLE=$(df /output | tail -1 | awk "{print \$4}")
+          FILE_SIZE=$(stat -c%s "$file")
+          
+          if [ $AVAILABLE -lt $((FILE_SIZE * 2)) ]; then
+              echo "ERROR: Insufficient space for $filename"
+              cp "$file" "/output/failed/$filename"
+              return 1
+          fi
+          
+          # Simulate file processing
+          if [ -f "$file" ]; then
+              # Process file (example: compress)
+              gzip -c "$file" > "/output/processed/${filename}.gz"
+              
+              if [ $? -eq 0 ]; then
+                  echo "SUCCESS: Processed $filename"
+                  echo "$(date): Processed $filename" >> /output/processing.log
+              else
+                  echo "ERROR: Failed to process $filename"
+                  cp "$file" "/output/failed/$filename"
+              fi
+          fi
+      }
+
+      # Storage cleanup function
+      cleanup_storage() {
+          echo "Running storage cleanup..."
+          
+          # Remove files older than 7 days
+          find /output/processed -name "*.gz" -mtime +7 -delete
+          find /output/failed -name "*" -mtime +7 -delete
+          
+          # Rotate logs
+          if [ -f /output/processing.log ]; then
+              tail -1000 /output/processing.log > /output/processing.log.tmp
+              mv /output/processing.log.tmp /output/processing.log
+          fi
+          
+          echo "Cleanup completed"
+      }
+
+      echo "File processor with storage quotas starting..."
+
+      # Monitor input directory for new files
+      inotifywait -m /input -e create -e moved_to --format "%f" |
+      while read filename; do
+          if [ -f "/input/$filename" ]; then
+              process_file "/input/$filename"
+              
+              # Check if cleanup is needed
+              USAGE_PERCENT=$(df /output | tail -1 | awk "{print \$5}" | sed "s/%//")
+              if [ $USAGE_PERCENT -gt 80 ]; then
+                  cleanup_storage
+              fi
+          fi
+      done
+      '
+
+  # Example 6: Storage monitoring service
+  storage-monitor:
+    image: alpine:latest
+    container_name: storage-monitor
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    command: |
+      sh -c '
+      apk add --no-cache curl jq
+
+      monitor_storage() {
+          echo "=== Storage Usage Report $(date) ==="
+          
+          # System storage overview
+          echo "System Disk Usage:"
+          df -h /var/lib/docker
+          
+          # Docker system storage
+          echo "\\nDocker System Storage:"
+          timeout 10 sh -c "
+              docker system df 2>/dev/null || echo \"Docker not accessible\"
+          " || echo "Docker command timeout"
+          
+          # Container storage usage
+          echo "\\nContainer Storage Usage:"
+          for container in web-storage-limited postgres-storage-quota log-storage-managed redis-storage-quota file-processor-quota; do
+              if docker ps --format \"{{.Names}}\" | grep -q \"$container\"; then
+                  SIZE=$(docker exec $container du -sh / 2>/dev/null | cut -f1 || echo \"N/A\")
+                  echo \"$container: $SIZE\"
+              fi
+          done
+          
+          # Volume storage usage
+          echo "\\nVolume Storage Usage:"
+          docker volume ls --format \"table {{.Name}}\\t{{.Size}}\" 2>/dev/null || echo \"Volume info not available\"
+          
+          echo "================================="
+      }
+
+      # Alert function
+      check_alerts() {
+          # Check if any container is approaching storage limits
+          docker stats --no-stream --format \"{{.Container}}\t{{.MemPerc}}\" 2>/dev/null |
+          while read line; do
+              container=$(echo $line | cut -f1)
+              usage=$(echo $line | cut -f2 | sed \"s/%//\")
+              
+              if [ \"$usage\" -gt 90 ] 2>/dev/null; then
+                  echo \"ALERT: $container storage usage: $usage%\"
+              fi
+          done
+      }
+
+      while true; do
+          monitor_storage
+          check_alerts
+          sleep 60
+      done
+      '
+
+volumes:
+  web_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: ${PWD}/web_data
+      o: bind
+
+  postgres_data:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1g,uid=999,gid=999
+
+  logs_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: ${PWD}/logs_data
+      o: bind
+
+  redis_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: ${PWD}/redis_data
+      o: bind
+
+  processing_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: ${PWD}/processing_data
+      o: bind
+
+networks:
+  default:
+    driver: bridge
+# Usage examples:
+#
+# Create required directories:
+# mkdir -p {web_data,logs_data,redis_data,processing_data,input,logs}
+#
+# Start all services:
+# docker-compose -f storage-quotas.yml up -d
+#
+# Check storage usage:
+# docker exec storage-monitor df -h
+#
+# Test file processing:
+# echo "test data" > input/test.txt
+#
+# Monitor storage quotas:
+# docker exec <container> df -h /
+#
+# Check container storage limits:
+# docker inspect <container> --format='{{.HostConfig.StorageOpt}}'

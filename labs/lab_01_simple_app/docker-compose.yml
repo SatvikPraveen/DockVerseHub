@@ -1,0 +1,38 @@
+# File Location: labs/lab_01_simple_app/docker-compose.yml
+
+version: "3.8"
+
+services:
+  simple-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: simple-app-container
+    ports:
+      - "8080:5000"
+    environment:
+      - CUSTOM_MESSAGE=Hello from Docker Compose!
+      - FLASK_ENV=production
+      - PORT=5000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - simple-app-network
+    labels:
+      - "com.example.description=Simple Flask application"
+      - "com.example.version=1.0"
+
+networks:
+  simple-app-network:
+    driver: bridge
+    labels:
+      - "com.example.network=simple-app-network"
+# Optional: Add volumes for persistent data
+# volumes:
+#   app-data:
+#     driver: local

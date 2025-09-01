@@ -1,0 +1,554 @@
+# 10_ci_cd_integration/testing-strategies/contract-testing.yml
+
+# Contract Testing with Pact and OpenAPI
+# Consumer-driven contract testing for microservices
+
+version: "3.8"
+
+services:
+  # Pact Broker for managing contracts
+  pact-broker:
+    image: pactfoundation/pact-broker:latest
+    ports:
+      - "9292:9292"
+    environment:
+      PACT_BROKER_BASE_URL: http://localhost:9292
+      PACT_BROKER_DATABASE_URL: postgres://pactuser:pactpass@pact-postgres:5432/pactdb
+      PACT_BROKER_DATABASE_CONNECT_MAX_RETRIES: 5
+      PACT_BROKER_DATABASE_RETRY_INTERVAL: 3
+      PACT_BROKER_LOG_LEVEL: INFO
+      PACT_BROKER_SQL_LOG_LEVEL: DEBUG
+      PACT_BROKER_SQL_LOG_WARN_DURATION: 5
+      PACT_BROKER_DATABASE_STATEMENT_TIMEOUT: 15
+    depends_on:
+      pact-postgres:
+        condition: service_healthy
+    networks:
+      - contract-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:9292/",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # PostgreSQL for Pact Broker
+  pact-postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: pactuser
+      POSTGRES_PASSWORD: pactpass
+      POSTGRES_DB: pactdb
+    volumes:
+      - pact_postgres_data:/var/lib/postgresql/data
+    networks:
+      - contract-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pactuser -d pactdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Provider Service (API being tested)
+  api-provider:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    environment:
+      NODE_ENV: test
+      PORT: 3000
+      DATABASE_URL: postgres://testuser:testpass@provider-postgres:5432/providerdb
+      REDIS_URL: redis://provider-redis:6379
+      PACT_BROKER_URL: http://pact-broker:9292
+      PROVIDER_VERSION: ${PROVIDER_VERSION:-1.0.0}
+      PROVIDER_BRANCH: ${PROVIDER_BRANCH:-main}
+    ports:
+      - "3000:3000"
+    depends_on:
+      provider-postgres:
+        condition: service_healthy
+      provider-redis:
+        condition: service_healthy
+      pact-broker:
+        condition: service_healthy
+    volumes:
+      - ./tests/contract/provider:/app/tests/contract
+    networks:
+      - contract-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Provider Database
+  provider-postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpass
+      POSTGRES_DB: providerdb
+    volumes:
+      - provider_postgres_data:/var/lib/postgresql/data
+      - ./tests/contract/provider/fixtures:/docker-entrypoint-initdb.d:ro
+    networks:
+      - contract-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U testuser -d providerdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Provider Redis
+  provider-redis:
+    image: redis:7-alpine
+    networks:
+      - contract-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Consumer Service 1 - Web Frontend
+  web-consumer:
+    build:
+      context: ./services/web-frontend
+      dockerfile: Dockerfile.test
+    environment:
+      NODE_ENV: test
+      API_BASE_URL: http://api-provider:3000
+      PACT_BROKER_URL: http://pact-broker:9292
+      CONSUMER_VERSION: ${WEB_CONSUMER_VERSION:-1.0.0}
+      CONSUMER_BRANCH: ${WEB_CONSUMER_BRANCH:-main}
+    depends_on:
+      pact-broker:
+        condition: service_healthy
+    volumes:
+      - ./tests/contract/consumers/web:/app/tests/contract
+      - ./pact-contracts/web:/app/pact-contracts
+    networks:
+      - contract-network
+    command: >
+      sh -c "
+        echo 'Running Web Consumer contract tests...' &&
+        npm run test:contract:consumer &&
+        npm run pact:publish
+      "
+
+  # Consumer Service 2 - Mobile API
+  mobile-consumer:
+    build:
+      context: ./services/mobile-api
+      dockerfile: Dockerfile.test
+    environment:
+      NODE_ENV: test
+      PROVIDER_API_URL: http://api-provider:3000
+      PACT_BROKER_URL: http://pact-broker:9292
+      CONSUMER_VERSION: ${MOBILE_CONSUMER_VERSION:-1.0.0}
+      CONSUMER_BRANCH: ${MOBILE_CONSUMER_BRANCH:-main}
+    depends_on:
+      pact-broker:
+        condition: service_healthy
+    volumes:
+      - ./tests/contract/consumers/mobile:/app/tests/contract
+      - ./pact-contracts/mobile:/app/pact-contracts
+    networks:
+      - contract-network
+    command: >
+      sh -c "
+        echo 'Running Mobile Consumer contract tests...' &&
+        npm run test:contract:consumer &&
+        npm run pact:publish
+      "
+
+  # Consumer Service 3 - Analytics Service
+  analytics-consumer:
+    build:
+      context: ./services/analytics
+      dockerfile: Dockerfile.test
+    environment:
+      NODE_ENV: test
+      API_ENDPOINT: http://api-provider:3000
+      PACT_BROKER_URL: http://pact-broker:9292
+      CONSUMER_VERSION: ${ANALYTICS_CONSUMER_VERSION:-1.0.0}
+      CONSUMER_BRANCH: ${ANALYTICS_CONSUMER_BRANCH:-main}
+    depends_on:
+      pact-broker:
+        condition: service_healthy
+    volumes:
+      - ./tests/contract/consumers/analytics:/app/tests/contract
+      - ./pact-contracts/analytics:/app/pact-contracts
+    networks:
+      - contract-network
+    command: >
+      sh -c "
+        echo 'Running Analytics Consumer contract tests...' &&
+        python -m pytest tests/contract/ &&
+        python scripts/publish_pacts.py
+      "
+
+  # Provider Verification Service
+  provider-verifier:
+    build:
+      context: .
+      dockerfile: tests/contract/Dockerfile.provider-verifier
+    environment:
+      PACT_BROKER_URL: http://pact-broker:9292
+      PROVIDER_BASE_URL: http://api-provider:3000
+      PROVIDER_VERSION: ${PROVIDER_VERSION:-1.0.0}
+      PROVIDER_BRANCH: ${PROVIDER_BRANCH:-main}
+      PACT_BROKER_USERNAME: ${PACT_BROKER_USERNAME}
+      PACT_BROKER_PASSWORD: ${PACT_BROKER_PASSWORD}
+      VERIFICATION_RESULTS_PUBLISH: "true"
+    depends_on:
+      api-provider:
+        condition: service_healthy
+      pact-broker:
+        condition: service_healthy
+    volumes:
+      - ./tests/contract/provider:/app/tests
+      - ./pact-verification-results:/app/results
+    networks:
+      - contract-network
+    command: >
+      sh -c "
+        echo 'Waiting for consumers to publish contracts...' &&
+        sleep 60 &&
+        echo 'Running provider verification tests...' &&
+        npm run test:contract:provider
+      "
+
+  # OpenAPI Contract Validator
+  openapi-validator:
+    build:
+      context: .
+      dockerfile: tests/contract/Dockerfile.openapi-validator
+    environment:
+      API_BASE_URL: http://api-provider:3000
+      OPENAPI_SPEC_PATH: /app/openapi.yaml
+    depends_on:
+      api-provider:
+        condition: service_healthy
+    volumes:
+      - ./api-specs:/app/specs:ro
+      - ./tests/contract/openapi:/app/tests:ro
+      - ./test-results/openapi:/app/results
+    networks:
+      - contract-network
+    command: >
+      sh -c "
+        echo 'Running OpenAPI contract validation...' &&
+        npm run validate:openapi-spec &&
+        npm run test:openapi-contract
+      "
+
+  # Postman Contract Tests
+  postman-contract:
+    image: postman/newman:latest
+    environment:
+      API_BASE_URL: http://api-provider:3000
+    depends_on:
+      api-provider:
+        condition: service_healthy
+    volumes:
+      - ./tests/contract/postman:/etc/newman:ro
+      - ./test-results/postman:/results
+    networks:
+      - contract-network
+    command: >
+      sh -c "
+        sleep 30 &&
+        newman run /etc/newman/api-contract-tests.json \
+          --environment /etc/newman/test-environment.json \
+          --reporters cli,json,junit \
+          --reporter-json-export /results/postman-results.json \
+          --reporter-junit-export /results/postman-results.xml
+      "
+
+  # AsyncAPI Contract Tests (for event-driven contracts)
+  asyncapi-validator:
+    image: node:18-alpine
+    working_dir: /app
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      ASYNCAPI_SPEC_PATH: /app/asyncapi.yaml
+    depends_on:
+      - kafka
+      - rabbitmq
+    volumes:
+      - ./api-specs/asyncapi.yaml:/app/asyncapi.yaml:ro
+      - ./tests/contract/asyncapi:/app/tests:ro
+      - ./test-results/asyncapi:/app/results
+    networks:
+      - contract-network
+    command: >
+      sh -c "
+        npm install -g @asyncapi/cli @asyncapi/modelina-cli &&
+        echo 'Validating AsyncAPI specification...' &&
+        asyncapi validate /app/asyncapi.yaml &&
+        echo 'Generating contract test code...' &&
+        asyncapi generate fromTemplate /app/asyncapi.yaml @asyncapi/nodejs-template -o /app/generated &&
+        echo 'Running AsyncAPI contract tests...' &&
+        cd /app/tests && npm install && npm test
+      "
+
+  # Kafka for AsyncAPI testing
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    depends_on:
+      - zookeeper
+    networks:
+      - contract-network
+
+  # Zookeeper for Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - contract-network
+
+  # RabbitMQ for AsyncAPI testing
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "15673:15672"
+    networks:
+      - contract-network
+
+  # Contract Test Dashboard
+  contract-dashboard:
+    build:
+      context: ./tools/contract-dashboard
+      dockerfile: Dockerfile
+    environment:
+      PACT_BROKER_URL: http://pact-broker:9292
+      PORT: 3001
+    ports:
+      - "3001:3001"
+    depends_on:
+      pact-broker:
+        condition: service_healthy
+    networks:
+      - contract-network
+
+  # Contract Drift Detection
+  drift-detector:
+    build:
+      context: ./tools/drift-detector
+      dockerfile: Dockerfile
+    environment:
+      PACT_BROKER_URL: http://pact-broker:9292
+      API_BASE_URL: http://api-provider:3000
+      CHECK_INTERVAL: "3600" # 1 hour
+    depends_on:
+      pact-broker:
+        condition: service_healthy
+      api-provider:
+        condition: service_healthy
+    volumes:
+      - ./test-results/drift:/app/results
+    networks:
+      - contract-network
+    command: >
+      sh -c "
+        echo 'Starting contract drift detection...' &&
+        npm run detect:drift
+      "
+
+  # CDCT (Consumer-Driven Contract Testing) Orchestrator
+  cdct-orchestrator:
+    build:
+      context: ./tools/cdct-orchestrator
+      dockerfile: Dockerfile
+    environment:
+      PACT_BROKER_URL: http://pact-broker:9292
+      WEBHOOK_URL: ${WEBHOOK_URL}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+    depends_on:
+      - web-consumer
+      - mobile-consumer
+      - analytics-consumer
+      - provider-verifier
+    volumes:
+      - ./test-results/cdct:/app/results
+    networks:
+      - contract-network
+    command: >
+      sh -c "
+        echo 'Orchestrating contract testing workflow...' &&
+        sleep 120 &&  # Wait for all consumers to publish
+        npm run orchestrate:tests &&
+        npm run generate:reports
+      "
+
+  # Contract Performance Tests
+  contract-performance:
+    image: grafana/k6:latest
+    environment:
+      API_BASE_URL: http://api-provider:3000
+    depends_on:
+      api-provider:
+        condition: service_healthy
+    volumes:
+      - ./tests/contract/performance:/scripts:ro
+      - ./test-results/contract-performance:/results
+    networks:
+      - contract-network
+    command: >
+      sh -c "
+        sleep 60 &&
+        echo 'Running contract performance tests...' &&
+        k6 run --out json=/results/contract-perf-results.json /scripts/contract-load-test.js
+      "
+
+  # Contract Security Tests
+  contract-security:
+    image: owasp/zap2docker-stable
+    environment:
+      API_BASE_URL: http://api-provider:3000
+    depends_on:
+      api-provider:
+        condition: service_healthy
+    volumes:
+      - ./test-results/contract-security:/zap/wrk:rw
+      - ./tests/contract/security:/zap/scripts:ro
+    networks:
+      - contract-network
+    command: >
+      sh -c "
+        sleep 60 &&
+        echo 'Running contract security tests...' &&
+        zap-api-scan.py -t http://api-provider:3000/openapi.json -f openapi -J contract-security-results.json
+      "
+    user: zap
+
+  # Test Report Aggregator
+  contract-reports:
+    image: node:18-alpine
+    depends_on:
+      - provider-verifier
+      - openapi-validator
+      - postman-contract
+      - asyncapi-validator
+      - contract-performance
+      - contract-security
+    volumes:
+      - ./test-results:/input:ro
+      - ./contract-reports:/output
+    networks:
+      - contract-network
+    command: >
+      sh -c "
+        npm install -g junit-merge &&
+        sleep 300 &&  # Wait for all tests to complete
+        echo 'Aggregating contract test reports...' &&
+        
+        # Create summary report
+        cat > /output/contract-test-summary.json << 'EOF'
+        {
+          \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",
+          \"contract_tests\": {
+            \"pact_consumer_tests\": \"completed\",
+            \"pact_provider_verification\": \"completed\",
+            \"openapi_validation\": \"completed\",
+            \"postman_contract_tests\": \"completed\",
+            \"asyncapi_validation\": \"completed\",
+            \"performance_tests\": \"completed\",
+            \"security_tests\": \"completed\"
+          },
+          \"results_location\": \"/output\",
+          \"pact_broker_url\": \"http://pact-broker:9292\"
+        }
+        EOF
+        
+        # Merge JUnit reports
+        junit-merge -d /input -o /output/contract-junit-merged.xml &&
+        
+        echo 'Contract test reports generated successfully'
+      "
+
+volumes:
+  pact_postgres_data:
+  provider_postgres_data:
+
+networks:
+  contract-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/16
+
+# Additional configurations for different scenarios
+---
+# docker-compose.contract.ci.yml (for CI pipelines)
+version: "3.8"
+
+services:
+  cdct-orchestrator:
+    environment:
+      CI_MODE: "true"
+      PARALLEL_VERIFICATION: "true"
+      FAIL_FAST: "true"
+
+  provider-verifier:
+    environment:
+      VERIFICATION_TIMEOUT: "60000"
+      PROVIDER_STATE_SETUP_URL: http://api-provider:3000/pact/setup
+
+---
+# docker-compose.contract.dev.yml (for development)
+version: "3.8"
+
+services:
+  pact-broker:
+    ports:
+      - "9292:9292"
+    environment:
+      PACT_BROKER_LOG_LEVEL: DEBUG
+
+  api-provider:
+    volumes:
+      - ./src:/app/src:ro
+      - ./logs:/app/logs
+
+  web-consumer:
+    environment:
+      DEBUG_PACT: "true"
+    volumes:
+      - ./src:/app/src:ro
+# Usage Examples:
+#
+# Full contract testing suite:
+# docker-compose -f contract-testing.yml up --build --abort-on-container-exit
+#
+# Consumer tests only:
+# docker-compose -f contract-testing.yml up pact-broker web-consumer mobile-consumer analytics-consumer
+#
+# Provider verification only:
+# docker-compose -f contract-testing.yml up api-provider provider-verifier
+#
+# Development mode:
+# docker-compose -f contract-testing.yml -f docker-compose.contract.dev.yml up
+#
+# CI mode:
+# docker-compose -f contract-testing.yml -f docker-compose.contract.ci.yml up

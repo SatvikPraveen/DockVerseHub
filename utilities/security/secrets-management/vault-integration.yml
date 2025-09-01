@@ -1,0 +1,446 @@
+# Location: utilities/security/secrets-management/vault-integration.yml
+# HashiCorp Vault integration for Docker secrets management
+
+version: '3.8'
+
+services:
+  # HashiCorp Vault server
+  vault:
+    image: vault:1.15.0
+    container_name: vault-server
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_ADDR: http://0.0.0.0:8200
+      VAULT_API_ADDR: http://0.0.0.0:8200
+      VAULT_LOCAL_CONFIG: |
+        {
+          "backend": {"consul": {"address": "consul:8500", "path": "vault/"}},
+          "listener": {
+            "tcp": {
+              "address": "0.0.0.0:8200",
+              "tls_disable": 1
+            }
+          },
+          "ui": true,
+          "disable_mlock": true,
+          "default_lease_ttl": "168h",
+          "max_lease_ttl": "720h"
+        }
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - vault-data:/vault/data
+      - vault-logs:/vault/logs
+      - ./vault-config:/vault/config:ro
+    command: vault server -config=/vault/config/vault.json
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - vault-network
+
+  # Consul for Vault backend storage
+  consul:
+    image: consul:1.16.1
+    container_name: consul-server
+    ports:
+      - "8500:8500"
+    environment:
+      CONSUL_BIND_INTERFACE: eth0
+    volumes:
+      - consul-data:/consul/data
+    command: >
+      consul agent -server -bootstrap-expect=1 -client=0.0.0.0
+      -bind=0.0.0.0 -data-dir=/consul/data -ui
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - vault-network
+
+  # Vault Agent for secret injection
+  vault-agent:
+    image: vault:1.15.0
+    container_name: vault-agent
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: http://vault:8200
+    volumes:
+      - ./vault-agent-config:/vault/config:ro
+      - vault-agent-data:/vault/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: vault agent -config=/vault/config/agent.hcl
+    networks:
+      - vault-network
+    restart: unless-stopped
+
+  # Application using Vault secrets
+  app-with-vault:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: demo-app
+    depends_on:
+      - vault-agent
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_ROLE: app-role
+    volumes:
+      - vault-agent-data:/vault/secrets:ro
+    networks:
+      - vault-network
+      - app-network
+    restart: unless-stopped
+
+  # Vault init container
+  vault-init:
+    image: vault:1.15.0
+    container_name: vault-init
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: http://vault:8200
+    volumes:
+      - ./vault-init:/scripts:ro
+      - vault-keys:/vault/keys
+    command: /scripts/init-vault.sh
+    networks:
+      - vault-network
+    restart: "no"
+    profiles:
+      - init
+
+volumes:
+  vault-data:
+    driver: local
+  vault-logs:
+    driver: local
+  vault-keys:
+    driver: local
+  vault-agent-data:
+    driver: local
+  consul-data:
+    driver: local
+
+networks:
+  vault-network:
+    driver: bridge
+    internal: false
+  app-network:
+    driver: bridge
+
+# Configuration files structure:
+#
+# vault-config/
+# ├── vault.json           # Vault server configuration
+# └── policies/            # Vault policies
+#     ├── app-policy.hcl
+#     └── admin-policy.hcl
+#
+# vault-agent-config/
+# └── agent.hcl           # Vault agent configuration
+#
+# vault-init/
+# ├── init-vault.sh       # Vault initialization script
+# ├── setup-policies.sh   # Policy setup script
+# └── setup-auth.sh       # Authentication setup
+#
+# app/
+# ├── Dockerfile          # Application Dockerfile
+# ├── app.py             # Application code
+# └── vault-helper.py     # Vault integration helper
+
+---
+# vault-config/vault.json
+{
+  "storage": {
+    "consul": {
+      "address": "consul:8500",
+      "path": "vault/"
+    }
+  },
+  "listener": {
+    "tcp": {
+      "address": "0.0.0.0:8200",
+      "tls_disable": true
+    }
+  },
+  "api_addr": "http://vault:8200",
+  "cluster_addr": "http://vault:8201",
+  "ui": true,
+  "disable_mlock": true,
+  "default_lease_ttl": "168h",
+  "max_lease_ttl": "8760h",
+  "log_level": "INFO"
+}
+
+---
+# vault-config/policies/app-policy.hcl
+# Application policy for secret access
+path "secret/data/app/*" {
+  capabilities = ["read"]
+}
+
+path "secret/data/shared/*" {
+  capabilities = ["read"]
+}
+
+path "database/creds/app-role" {
+  capabilities = ["read"]
+}
+
+path "pki/issue/app-cert" {
+  capabilities = ["create", "update"]
+}
+
+path "auth/token/lookup-self" {
+  capabilities = ["read"]
+}
+
+path "auth/token/renew-self" {
+  capabilities = ["update"]
+}
+
+---
+# vault-agent-config/agent.hcl
+pid_file = "/tmp/pidfile"
+
+vault {
+  address = "http://vault:8200"
+}
+
+auto_auth {
+  method "approle" {
+    mount_path = "auth/approle"
+    config = {
+      role_id_file_path = "/vault/config/role-id"
+      secret_id_file_path = "/vault/config/secret-id"
+      remove_secret_id_file_after_reading = false
+    }
+  }
+
+  sink "file" {
+    config = {
+      path = "/vault/data/.vault-token"
+      mode = 0640
+    }
+  }
+}
+
+template {
+  source = "/vault/config/database.ctmpl"
+  destination = "/vault/secrets/database.conf"
+  perms = 0640
+  command = "pkill -HUP myapp"
+}
+
+template {
+  source = "/vault/config/api-keys.ctmpl"
+  destination = "/vault/secrets/api-keys.json"
+  perms = 0640
+  command = "pkill -HUP myapp"
+}
+
+---
+# vault-init/init-vault.sh
+#!/bin/bash
+# Vault initialization script
+
+set -e
+
+export VAULT_ADDR=http://vault:8200
+
+# Wait for Vault to be ready
+echo "Waiting for Vault to be ready..."
+until vault status >/dev/null 2>&1; do
+    echo "Vault is unavailable - sleeping"
+    sleep 2
+done
+
+# Check if Vault is already initialized
+if vault status | grep -q "Initialized.*true"; then
+    echo "Vault is already initialized"
+    exit 0
+fi
+
+echo "Initializing Vault..."
+
+# Initialize Vault
+vault operator init \
+    -key-shares=5 \
+    -key-threshold=3 \
+    -format=json > /vault/keys/init-keys.json
+
+echo "Vault initialized successfully"
+
+# Extract keys
+UNSEAL_KEY_1=$(jq -r '.unseal_keys_b64[0]' /vault/keys/init-keys.json)
+UNSEAL_KEY_2=$(jq -r '.unseal_keys_b64[1]' /vault/keys/init-keys.json)
+UNSEAL_KEY_3=$(jq -r '.unseal_keys_b64[2]' /vault/keys/init-keys.json)
+ROOT_TOKEN=$(jq -r '.root_token' /vault/keys/init-keys.json)
+
+# Unseal Vault
+echo "Unsealing Vault..."
+vault operator unseal "$UNSEAL_KEY_1"
+vault operator unseal "$UNSEAL_KEY_2"
+vault operator unseal "$UNSEAL_KEY_3"
+
+# Login with root token
+vault auth "$ROOT_TOKEN"
+
+# Enable secrets engines
+echo "Enabling secrets engines..."
+vault secrets enable -path=secret kv-v2
+vault secrets enable -path=database database
+vault secrets enable -path=pki pki
+
+# Enable auth methods
+echo "Enabling authentication methods..."
+vault auth enable approle
+vault auth enable userpass
+
+# Setup policies
+echo "Setting up policies..."
+vault policy write app-policy /scripts/app-policy.hcl
+vault policy write admin-policy /scripts/admin-policy.hcl
+
+# Create AppRole
+echo "Creating AppRole..."
+vault write auth/approle/role/app-role \
+    token_policies="app-policy" \
+    token_ttl=1h \
+    token_max_ttl=4h \
+    bind_secret_id=true
+
+# Get role ID and create secret ID
+ROLE_ID=$(vault read -field=role_id auth/approle/role/app-role/role-id)
+SECRET_ID=$(vault write -field=secret_id -f auth/approle/role/app-role/secret-id)
+
+# Save credentials for agent
+echo "$ROLE_ID" > /vault/keys/role-id
+echo "$SECRET_ID" > /vault/keys/secret-id
+
+# Setup some initial secrets
+echo "Setting up initial secrets..."
+vault kv put secret/app/database \
+    host="db.company.com" \
+    port="5432" \
+    username="app_user" \
+    password="secure_password_123"
+
+vault kv put secret/app/api \
+    stripe_key="sk_test_123456789" \
+    sendgrid_key="SG.123456789" \
+    jwt_secret="super_secret_jwt_key"
+
+vault kv put secret/shared/config \
+    environment="production" \
+    debug="false" \
+    log_level="info"
+
+echo "Vault setup completed successfully!"
+echo "Root token: $ROOT_TOKEN"
+echo "Save this token securely and delete this output!"
+
+---
+# Example usage in application
+# app/vault-helper.py
+import hvac
+import json
+import os
+from pathlib import Path
+
+class VaultHelper:
+    def __init__(self):
+        self.vault_addr = os.getenv('VAULT_ADDR', 'http://vault:8200')
+        self.client = hvac.Client(url=self.vault_addr)
+        self.authenticate()
+    
+    def authenticate(self):
+        """Authenticate with Vault using agent token"""
+        token_path = Path('/vault/secrets/.vault-token')
+        
+        if token_path.exists():
+            # Use token from Vault Agent
+            token = token_path.read_text().strip()
+            self.client.token = token
+        else:
+            # Fallback to AppRole authentication
+            role_id = os.getenv('VAULT_ROLE_ID')
+            secret_id = os.getenv('VAULT_SECRET_ID')
+            
+            if role_id and secret_id:
+                auth_response = self.client.auth.approle.login(
+                    role_id=role_id,
+                    secret_id=secret_id
+                )
+                self.client.token = auth_response['auth']['client_token']
+    
+    def get_secret(self, path):
+        """Get secret from Vault"""
+        try:
+            response = self.client.secrets.kv.v2.read_secret_version(
+                path=path,
+                mount_point='secret'
+            )
+            return response['data']['data']
+        except Exception as e:
+            print(f"Error reading secret {path}: {e}")
+            return None
+    
+    def get_database_credentials(self):
+        """Get dynamic database credentials"""
+        try:
+            response = self.client.secrets.database.generate_credentials(
+                name='app-role'
+            )
+            return response['data']
+        except Exception as e:
+            print(f"Error getting database credentials: {e}")
+            return None
+
+# Usage example:
+if __name__ == "__main__":
+    vault = VaultHelper()
+    
+    # Get static secrets
+    db_config = vault.get_secret('app/database')
+    api_keys = vault.get_secret('app/api')
+    
+    # Get dynamic database credentials
+    db_creds = vault.get_database_credentials()
+    
+    print("Secrets retrieved successfully!")
+
+# Docker commands for usage:
+#
+# 1. Start Vault infrastructure:
+#    docker-compose up -d vault consul
+#
+# 2. Initialize Vault:
+#    docker-compose --profile init run vault-init
+#
+# 3. Start Vault Agent:
+#    docker-compose up -d vault-agent
+#
+# 4. Start application:
+#    docker-compose up -d app-with-vault
+#
+# 5. Access Vault UI:
+#    http://localhost:8200
+#
+# 6. Rotate secrets:
+#    docker-compose exec vault vault kv put secret/app/database password=new_password
+#
+# 7. Revoke all tokens:
+#    docker-compose exec vault vault auth -method=userpass revoke-all

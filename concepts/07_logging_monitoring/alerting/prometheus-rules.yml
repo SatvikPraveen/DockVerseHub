@@ -1,0 +1,249 @@
+# 07_logging_monitoring/alerting/prometheus-rules.yml
+
+groups:
+  # Container and Infrastructure Alerts
+  - name: container.rules
+    interval: 30s
+    rules:
+      - alert: ContainerDown
+        expr: up == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: infrastructure
+        annotations:
+          summary: "Container {{ $labels.instance }} is down"
+          description: "Container {{ $labels.instance }} has been down for more than 30 seconds"
+          runbook_url: "https://runbooks.example.com/container-down"
+
+      - alert: HighMemoryUsage
+        expr: (container_memory_usage_bytes / container_spec_memory_limit_bytes) * 100 > 80
+        for: 2m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "High memory usage on {{ $labels.container_label_com_docker_compose_service }}"
+          description: "Memory usage is above 80% for {{ $labels.container_label_com_docker_compose_service }}"
+
+      - alert: HighCPUUsage
+        expr: rate(container_cpu_usage_seconds_total[5m]) * 100 > 80
+        for: 2m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "High CPU usage on {{ $labels.container_label_com_docker_compose_service }}"
+          description: "CPU usage is above 80% for {{ $labels.container_label_com_docker_compose_service }}"
+
+      - alert: ContainerRestartLoop
+        expr: increase(container_start_time_seconds[10m]) > 3
+        for: 0m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "Container {{ $labels.name }} is restarting frequently"
+          description: "Container {{ $labels.name }} has restarted {{ $value }} times in the last 10 minutes"
+
+  # Application-specific alerts
+  - name: application.rules
+    interval: 15s
+    rules:
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} for {{ $labels.service }}"
+          runbook_url: "https://runbooks.example.com/high-error-rate"
+
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 0.5
+        for: 3m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High response time detected"
+          description: "95th percentile response time is {{ $value }}s for {{ $labels.service }}"
+
+      - alert: NoRequestsReceived
+        expr: rate(http_requests_total[5m]) == 0
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "No requests received"
+          description: "Service {{ $labels.service }} has not received any requests for 5 minutes"
+
+      - alert: DatabaseConnectionsHigh
+        expr: database_connections_active / database_connections_max > 0.8
+        for: 2m
+        labels:
+          severity: warning
+          team: database
+          service: database
+        annotations:
+          summary: "Database connections high"
+          description: "Active database connections ({{ $value | humanizePercentage }}) approaching limit"
+
+  # System-level alerts
+  - name: system.rules
+    interval: 30s
+    rules:
+      - alert: HostOutOfMemory
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100 < 10
+        for: 2m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "Host out of memory"
+          description: "Host {{ $labels.instance }} memory is filling up (< 10% available)"
+
+      - alert: HostOutOfDiskSpace
+        expr: (node_filesystem_avail_bytes * 100) / node_filesystem_size_bytes < 10 and ON (instance, device, mountpoint) node_filesystem_readonly == 0
+        for: 2m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "Host out of disk space"
+          description: "Disk is almost full (< 10% available) on {{ $labels.instance }} at {{ $labels.mountpoint }}"
+
+      - alert: HostHighCpuLoad
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "Host high CPU load"
+          description: "Host {{ $labels.instance }} CPU load is {{ $value }}%"
+
+      - alert: HostNetworkReceiveErrors
+        expr: increase(node_network_receive_errs_total[2m]) > 10
+        for: 0m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "Host network receive errors"
+          description: "Host {{ $labels.instance }} interface {{ $labels.device }} has {{ $value }} receive errors"
+
+  # Docker-specific alerts
+  - name: docker.rules
+    interval: 30s
+    rules:
+      - alert: DockerDaemonDown
+        expr: up{job="docker-daemon"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: infrastructure
+        annotations:
+          summary: "Docker daemon is down"
+          description: "Docker daemon on {{ $labels.instance }} has been down for more than 30 seconds"
+
+      - alert: TooManyContainers
+        expr: count(container_last_seen) > 50
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "Too many containers running"
+          description: "More than 50 containers are currently running"
+
+      - alert: ContainerVolumeUsage
+        expr: (1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)) * 100 > 85
+        for: 2m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "Container volume usage high"
+          description: "Container volume usage is above 85% on {{ $labels.instance }}"
+
+  # Logging and monitoring alerts
+  - name: monitoring.rules
+    interval: 30s
+    rules:
+      - alert: PrometheusTargetMissing
+        expr: up == 0
+        for: 0m
+        labels:
+          severity: critical
+          component: monitoring
+        annotations:
+          summary: "Prometheus target missing"
+          description: "A Prometheus target has disappeared. An exporter might be crashed."
+
+      - alert: PrometheusConfigurationReloadFailure
+        expr: prometheus_config_last_reload_successful != 1
+        for: 0m
+        labels:
+          severity: warning
+          component: monitoring
+        annotations:
+          summary: "Prometheus configuration reload failure"
+          description: "Prometheus configuration reload error"
+
+      - alert: ElasticsearchClusterRed
+        expr: elasticsearch_cluster_health_status{color="red"} == 1
+        for: 0m
+        labels:
+          severity: critical
+          component: logging
+        annotations:
+          summary: "Elasticsearch cluster red"
+          description: "Elastic Search Cluster health RED"
+
+      - alert: ElasticsearchYellow
+        expr: elasticsearch_cluster_health_status{color="yellow"} == 1
+        for: 0m
+        labels:
+          severity: warning
+          component: logging
+        annotations:
+          summary: "Elasticsearch cluster yellow"
+          description: "Elastic Search Cluster health YELLOW"
+
+      - alert: LogstashDown
+        expr: up{job="logstash"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: logging
+        annotations:
+          summary: "Logstash is down"
+          description: "Logstash service is down"
+
+  # Custom business logic alerts
+  - name: business.rules
+    interval: 60s
+    rules:
+      - alert: LowOrderRate
+        expr: rate(orders_total[10m]) < 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: business
+        annotations:
+          summary: "Low order rate detected"
+          description: "Order rate has been below 0.1 orders/second for 5 minutes"
+
+      - alert: PaymentFailuresHigh
+        expr: rate(payment_failures_total[5m]) / rate(payments_total[5m]) > 0.05
+        for: 3m
+        labels:
+          severity: critical
+          team: payments
+        annotations:
+          summary: "High payment failure rate"
+          description: "Payment failure rate is {{ $value | humanizePercentage }} over the last 5 minutes"

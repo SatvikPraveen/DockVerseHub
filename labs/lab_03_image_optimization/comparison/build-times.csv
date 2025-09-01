@@ -1,0 +1,17 @@
+Image,Build Time (seconds),Status,Cache Hit Rate (%),Build Type,Timestamp
+Naive Build,225,Success,0,Clean Build,2024-01-15 10:00:00
+Optimized Build,80,Success,0,Clean Build,2024-01-15 10:04:00
+Alpine Build,45,Success,0,Clean Build,2024-01-15 10:05:00
+Distroless Build,40,Success,0,Clean Build,2024-01-15 10:06:00
+Naive Build,180,Success,25,Code Change,2024-01-15 10:10:00
+Optimized Build,25,Success,85,Code Change,2024-01-15 10:11:00
+Alpine Build,15,Success,90,Code Change,2024-01-15 10:12:00
+Distroless Build,12,Success,92,Code Change,2024-01-15 10:13:00
+Naive Build,210,Success,15,Dependency Change,2024-01-15 10:20:00
+Optimized Build,65,Success,60,Dependency Change,2024-01-15 10:22:00
+Alpine Build,35,Success,70,Dependency Change,2024-01-15 10:23:00
+Distroless Build,32,Success,75,Dependency Change,2024-01-15 10:24:00
+Naive Build,225,Success,0,Full Rebuild,2024-01-15 10:30:00
+Optimized Build,80,Success,0,Full Rebuild,2024-01-15 10:34:00
+Alpine Build,45,Success,0,Full Rebuild,2024-01-15 10:35:00
+Distroless Build,40,Success,0,Full Rebuild,2024-01-15 10:36:00

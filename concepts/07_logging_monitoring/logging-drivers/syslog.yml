@@ -1,0 +1,138 @@
+# 07_logging_monitoring/logging-drivers/syslog.yml
+
+version: '3.8'
+
+services:
+  # Syslog server (rsyslog)
+  syslog-server:
+    image: rsyslog/syslog_appliance_alpine:latest
+    container_name: syslog-server
+    ports:
+      - "514:514/udp"    # Syslog UDP port
+      - "514:514/tcp"    # Syslog TCP port
+    volumes:
+      - syslog_data:/var/log
+      - ./syslog-config:/etc/rsyslog.d:ro
+    environment:
+      - TZ=UTC
+    command: |
+      sh -c 'echo "$$ModLoad imudp" > /etc/rsyslog.d/docker.conf &&
+             echo "$$UDPServerRun 514" >> /etc/rsyslog.d/docker.conf &&
+             echo "$$ModLoad imtcp" >> /etc/rsyslog.d/docker.conf &&
+             echo "$$InputTCPServerRun 514" >> /etc/rsyslog.d/docker.conf &&
+             echo "# Docker container logs" >> /etc/rsyslog.d/docker.conf &&
+             echo "$$template DockerLog,\"/var/log/docker/%programname%.log\"" >> /etc/rsyslog.d/docker.conf &&
+             echo ":programname, startswith, \"docker/\" ?DockerLog" >> /etc/rsyslog.d/docker.conf &&
+             echo "& stop" >> /etc/rsyslog.d/docker.conf &&
+             rsyslogd -n'
+
+  # Application using syslog driver
+  syslog-app:
+    image: nginx:alpine
+    container_name: syslog-demo
+    ports:
+      - "8091:80"
+    logging:
+      driver: "syslog"
+      options:
+        syslog-address: "udp://localhost:514"
+        tag: "docker/nginx-demo"
+        syslog-facility: "local0"
+        syslog-format: "rfc3164"  # or rfc5424
+    environment:
+      - LOG_LEVEL=info
+    depends_on:
+      - syslog-server
+
+  # Python app with custom syslog messages
+  python-syslog-app:
+    image: python:3.11-alpine
+    container_name: python-syslog-demo
+    logging:
+      driver: "syslog"
+      options:
+        syslog-address: "tcp://syslog-server:514"
+        tag: "docker/python-app"
+        syslog-facility: "local1"
+    command: |
+      sh -c 'pip install --no-cache-dir requests &&
+             cat > /app.py << "EOF"
+import time
+import logging
+import logging.handlers
+import random
+import json
+from datetime import datetime
+
+# Configure syslog handler
+syslog_handler = logging.handlers.SysLogHandler(address=("syslog-server", 514))
+syslog_handler.setFormatter(logging.Formatter("%(name)s: %(levelname)s %(message)s"))
+
+logger = logging.getLogger("python-syslog-app")
+logger.setLevel(logging.INFO)
+logger.addHandler(syslog_handler)
+
+def generate_logs():
+    events = [
+        {"event": "user_login", "user_id": random.randint(1, 100), "status": "success"},
+        {"event": "api_call", "endpoint": "/api/data", "response_time": random.randint(10, 500)},
+        {"event": "database_query", "duration": random.randint(5, 200)},
+        {"event": "error", "error_type": "ConnectionError", "severity": "high"}
+    ]
+    
+    while True:
+        event = random.choice(events)
+        log_message = json.dumps({
+            "timestamp": datetime.utcnow().isoformat(),
+            **event
+        })
+        
+        if event.get("event") == "error":
+            logger.error(log_message)
+        else:
+            logger.info(log_message)
+        
+        time.sleep(random.randint(2, 8))
+
+if __name__ == "__main__":
+    logger.info("Python syslog app starting...")
+    generate_logs()
+EOF
+             python /app.py'
+    depends_on:
+      - syslog-server
+
+  # Log viewer to demonstrate syslog collection
+  syslog-viewer:
+    image: alpine:latest
+    container_name: syslog-viewer
+    volumes:
+      - syslog_data:/var/log:ro
+    command: |
+      sh -c 'echo "=== Syslog Driver Demo ===" &&
+             echo "Waiting for logs to be generated..." &&
+             sleep 10 &&
+             echo "=== Docker container logs in syslog ===" &&
+             if [ -f "/var/log/docker/nginx-demo.log" ]; then
+               echo "Nginx logs:" &&
+               tail -10 /var/log/docker/nginx-demo.log
+             fi &&
+             if [ -f "/var/log/docker/python-app.log" ]; then
+               echo "Python app logs:" &&
+               tail -10 /var/log/docker/python-app.log
+             fi &&
+             echo "=== All syslog files ===" &&
+             find /var/log -name "*.log" -type f &&
+             echo "=== Live log monitoring (press Ctrl+C to stop) ===" &&
+             tail -f /var/log/docker/*.log 2>/dev/null || tail -f /var/log/syslog 2>/dev/null || echo "No log files found yet"'
+    depends_on:
+      - syslog-server
+      - syslog-app
+      - python-syslog-app
+
+volumes:
+  syslog_data:
+
+networks:
+  default:
+    driver: bridge

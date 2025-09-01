@@ -1,0 +1,588 @@
+# Location: ./.gitignore
+
+# DockVerseHub - Git Ignore Patterns
+# ===================================
+
+# Operating System Files
+# =======================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.tmp
+*.temp
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# Editor and IDE Files
+# ====================
+# Visual Studio Code
+.vscode/
+*.code-workspace
+.history/
+
+# JetBrains IDEs
+.idea/
+*.swp
+*.swo
+*~.nib
+local.properties
+.settings/
+.loadpath
+.factorypath
+
+# Vim
+*.swp
+*.swo
+*.un~
+Session.vim
+.netrwhist
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# Sublime Text
+*.tmlanguage.cache
+*.tmPreferences.cache
+*.stTheme.cache
+*.sublime-workspace
+*.sublime-project
+
+# Atom
+.atom/
+
+# Python Files and Environments
+# ==============================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Virtual environments
+pyvenv.cfg
+pip-selfcheck.json
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Node.js and JavaScript
+# =======================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output
+
+# Dependency directories
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional stylelint cache
+.stylelintcache
+
+# Microbundle cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# parcel-bundler cache
+.cache
+.parcel-cache
+
+# Next.js build output
+.next
+out
+
+# Nuxt.js build / generate output
+.nuxt
+dist
+
+# Gatsby files
+.cache/
+public
+
+# Storybook build outputs
+.out
+.storybook-out
+
+# Temporary folders
+tmp/
+temp/
+
+# Java and Maven
+# ===============
+*.class
+*.log
+*.ctxt
+.mtj.tmp/
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+hs_err_pid*
+target/
+.mvn/wrapper/maven-wrapper.jar
+.mvn/wrapper/maven-wrapper.properties
+.mvn/wrapper/MavenWrapperDownloader.java
+mvnw
+mvnw.cmd
+
+# Gradle
+.gradle
+**/build/
+!src/**/build/
+gradle-app.setting
+!gradle-wrapper.jar
+!gradle-wrapper.properties
+
+# Go
+# ==
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+vendor/
+
+# Ruby
+# ====
+*.gem
+*.rbc
+/.config
+/coverage/
+/InstalledFiles
+/pkg/
+/spec/reports/
+/spec/examples.txt
+/test/tmp/
+/test/version_tmp/
+/tmp/
+.bundle/
+vendor/bundle
+lib/bundler/man/
+.rvmrc
+.ruby-version
+.ruby-gemset
+
+# Docker Related Files
+# ====================
+# Ignore Docker volumes that might be created locally
+volumes/
+data/
+logs/
+backups/
+
+# Container runtime files
+*.pid
+*.log
+
+# Docker build artifacts
+.docker/
+docker-data/
+registry-data/
+
+# Docker secrets (should never be committed)
+secrets/
+.secrets/
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+*.jks
+
+# Kubernetes secrets and configs
+kube-config
+*.kubeconfig
+
+# Docker Compose override files (environment specific)
+docker-compose.override.yml
+docker-compose.local.yml
+docker-compose.dev.yml
+docker-compose.test.yml
+
+# Ignore local development databases
+postgres-data/
+mysql-data/
+mongodb-data/
+redis-data/
+elasticsearch-data/
+
+# Build and Cache Directories
+# ============================
+build/
+dist/
+out/
+target/
+.cache/
+.temp/
+.tmp/
+
+# Log Files
+# =========
+*.log
+logs/
+*.log.*
+log/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime and Process Files
+# ==========================
+*.pid
+*.seed
+*.pid.lock
+pids/
+
+# Coverage and Testing
+# ====================
+coverage/
+.coverage
+htmlcov/
+.pytest_cache/
+test-results/
+.tox/
+.coverage.*
+
+# Documentation Build
+# ====================
+docs/_build/
+site/
+_site/
+.sass-cache/
+.jekyll-cache/
+.jekyll-metadata
+
+# Backup Files
+# ============
+*.bak
+*.backup
+*.swp
+*.tmp
+*~
+.#*
+
+# Archives
+# ========
+*.7z
+*.dmg
+*.gz
+*.iso
+*.rar
+*.tar
+*.zip
+*.bz2
+*.xz
+
+# Configuration Files with Sensitive Data
+# ========================================
+config/local.yml
+config/development.yml
+config/production.yml
+.env.local
+.env.development
+.env.test
+.env.production
+.env.staging
+
+# Security and Credential Files
+# ==============================
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.truststore
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+known_hosts
+authorized_keys
+
+# Database Files
+# ==============
+*.sqlite
+*.sqlite3
+*.db
+*.mdb
+*.accdb
+
+# Media Files (if accidentally added)
+# ====================================
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.ico
+*.svg
+*.webp
+*.mp4
+*.avi
+*.mov
+*.wmv
+*.flv
+*.webm
+*.mp3
+*.wav
+*.ogg
+*.flac
+
+# Package Manager Lock Files (keep some)
+# =======================================
+# Keep package-lock.json and yarn.lock for consistency
+# But ignore Composer lock for PHP projects
+composer.lock
+
+# Terraform
+# =========
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Ansible
+# =======
+*.retry
+.vault_pass.txt
+inventory/group_vars/*/vault.yml
+inventory/host_vars/*/vault.yml
+
+# Vagrant
+# =======
+.vagrant/
+*.box
+
+# Local Development and Testing
+# ==============================
+local/
+playground/
+sandbox/
+experiments/
+scratchpad/
+
+# Performance and Profiling
+# ==========================
+*.prof
+*.pprof
+profile.cov
+
+# Monitoring and Metrics Data
+# ============================
+prometheus-data/
+grafana-data/
+alertmanager-data/
+metrics/
+monitoring-data/
+
+# SSL/TLS Certificates
+# ====================
+ssl/
+certs/
+*.crt
+*.key
+*.pem
+*.cer
+
+# Project Specific Ignores
+# =========================
+# Ignore generated configuration files
+generated-configs/
+
+# Ignore local override files
+local-overrides/
+
+# Ignore benchmark results
+benchmarks/results/
+performance-reports/
+
+# Ignore security scan results
+security-reports/
+vulnerability-scans/
+
+# Ignore temporary lab data
+labs/*/temp/
+labs/*/tmp/
+labs/*/logs/
+labs/*/data/
+
+# Ignore utility script outputs
+utilities/outputs/
+utilities/reports/
+
+# Version and Release Files
+# =========================
+VERSION.tmp
+release-notes.tmp
+
+# IDE and Editor Specific
+# ========================
+*.sublime-project
+*.sublime-workspace
+.vscode/settings.json
+.vscode/tasks.json
+.vscode/launch.json
+.vscode/extensions.json
+.history/
+
+# OS Generated Thumbnails
+# ========================
+Thumbs.db
+Desktop.ini
+
+# Temporary Internet Files
+# =========================
+*.tmp
+*.temp

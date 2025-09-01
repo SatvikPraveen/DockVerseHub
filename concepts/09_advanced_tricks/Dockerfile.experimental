@@ -1,0 +1,444 @@
+# 09_advanced_tricks/Dockerfile.experimental
+
+# syntax=docker/dockerfile:1.7-labs
+# Enable experimental Dockerfile features
+
+ARG BUILDKIT_SYNTAX=docker/dockerfile:1.7-labs
+ARG BASE_IMAGE=alpine:3.18
+ARG GOLANG_VERSION=1.21
+
+# Experimental: Import external Dockerfile
+# FROM scratch AS import-demo
+# IMPORT mymodule.Dockerfile AS mymodule
+
+# Experimental: Here-docs for inline files
+FROM ${BASE_IMAGE} AS heredoc-demo
+
+# Create configuration files using here-docs
+COPY <<EOF /etc/app/config.json
+{
+    "version": "1.0.0",
+    "environment": "experimental",
+    "features": {
+        "heredoc": true,
+        "multiline": true,
+        "json": true
+    },
+    "database": {
+        "host": "localhost",
+        "port": 5432,
+        "ssl": true
+    }
+}
+EOF
+
+# Create shell script using here-doc
+COPY <<EOF /usr/local/bin/setup.sh
+#!/bin/bash
+set -euo pipefail
+
+echo "Setting up experimental features..."
+
+# Environment setup
+export PATH="/usr/local/bin:\$PATH"
+export CONFIG_FILE="/etc/app/config.json"
+
+# Create directories
+mkdir -p /var/log/app
+mkdir -p /var/cache/app
+mkdir -p /tmp/app
+
+# Set permissions
+chmod 755 /var/log/app
+chmod 755 /var/cache/app
+chmod 1777 /tmp/app
+
+# Install dependencies based on config
+if command -v apk &> /dev/null; then
+    apk add --no-cache curl jq
+elif command -v apt-get &> /dev/null; then
+    apt-get update && apt-get install -y curl jq
+fi
+
+echo "Setup completed successfully"
+EOF
+
+RUN chmod +x /usr/local/bin/setup.sh && /usr/local/bin/setup.sh
+
+# Create Python application using here-doc
+COPY <<EOF /app/main.py
+import json
+import os
+import sys
+from datetime import datetime
+from pathlib import Path
+
+class ExperimentalApp:
+    def __init__(self):
+        self.config = self.load_config()
+        self.start_time = datetime.now()
+    
+    def load_config(self):
+        config_file = Path("/etc/app/config.json")
+        if config_file.exists():
+            with open(config_file) as f:
+                return json.load(f)
+        return {}
+    
+    def run(self):
+        print(f"Starting experimental app at {self.start_time}")
+        print(f"Config: {json.dumps(self.config, indent=2)}")
+        
+        # Demonstrate experimental features
+        self.demonstrate_features()
+    
+    def demonstrate_features(self):
+        features = self.config.get("features", {})
+        print("Experimental features enabled:")
+        
+        for feature, enabled in features.items():
+            status = "✓" if enabled else "✗"
+            print(f"  {status} {feature}")
+
+if __name__ == "__main__":
+    app = ExperimentalApp()
+    app.run()
+EOF
+
+# Experimental: Conditional copying based on build context
+FROM heredoc-demo AS conditional-copy
+
+# Copy files only if they exist in build context
+COPY --parents <<EOF /app/optional/
+requirements.txt?
+package.json?
+Cargo.toml?
+go.mod?
+EOF
+
+# Check what was copied
+RUN find /app/optional -type f -exec echo "Found: {}" \;
+
+# Experimental: Advanced multi-stage with dynamic stages
+FROM golang:${GOLANG_VERSION}-alpine AS go-builder
+
+WORKDIR /src
+
+# Create Go application using here-doc
+COPY <<EOF /src/main.go
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "log"
+    "net/http"
+    "os"
+    "runtime"
+    "time"
+)
+
+type AppInfo struct {
+    Name        string    `json:"name"`
+    Version     string    `json:"version"`
+    GoVersion   string    `json:"go_version"`
+    BuildTime   string    `json:"build_time"`
+    Platform    string    `json:"platform"`
+    Experimental bool     `json:"experimental"`
+}
+
+func main() {
+    http.HandleFunc("/", handleRoot)
+    http.HandleFunc("/health", handleHealth)
+    http.HandleFunc("/info", handleInfo)
+    
+    port := os.Getenv("PORT")
+    if port == "" {
+        port = "8080"
+    }
+    
+    fmt.Printf("Starting server on port %s\n", port)
+    log.Fatal(http.ListenAndServe(":"+port, nil))
+}
+
+func handleRoot(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprintf(w, "Experimental Docker Features Demo\n")
+}
+
+func handleHealth(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "application/json")
+    response := map[string]interface{}{
+        "status": "healthy",
+        "timestamp": time.Now().Format(time.RFC3339),
+    }
+    json.NewEncoder(w).Encode(response)
+}
+
+func handleInfo(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "application/json")
+    
+    info := AppInfo{
+        Name:        "experimental-app",
+        Version:     "1.0.0-experimental",
+        GoVersion:   runtime.Version(),
+        BuildTime:   time.Now().Format(time.RFC3339),
+        Platform:    runtime.GOOS + "/" + runtime.GOARCH,
+        Experimental: true,
+    }
+    
+    json.NewEncoder(w).Encode(info)
+}
+EOF
+
+# Create go.mod using here-doc
+COPY <<EOF /src/go.mod
+module experimental-app
+
+go 1.21
+
+require ()
+EOF
+
+# Build the Go application
+RUN go mod tidy && \
+    CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o app .
+
+# Experimental: Link stage - reuse layers from other stages
+FROM scratch AS minimal-runtime
+
+# Copy CA certificates for HTTPS
+COPY --from=go-builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+# Copy the binary
+COPY --from=go-builder /src/app /app
+
+# Copy configuration from heredoc-demo stage
+COPY --from=heredoc-demo /etc/app/config.json /etc/app/config.json
+
+EXPOSE 8080
+
+ENTRYPOINT ["/app"]
+
+# Experimental: Platform-specific builds
+FROM --platform=$BUILDPLATFORM golang:${GOLANG_VERSION}-alpine AS cross-builder
+
+ARG TARGETPLATFORM
+ARG TARGETOS
+ARG TARGETARCH
+
+WORKDIR /src
+
+# Copy source from go-builder stage
+COPY --from=go-builder /src/ .
+
+# Cross-compile for target platform
+RUN GOOS=$TARGETOS GOARCH=$TARGETARCH CGO_ENABLED=0 \
+    go build -a -installsuffix cgo -o app-$TARGETARCH .
+
+# Experimental: Syntax extensions and advanced features
+FROM ${BASE_IMAGE} AS syntax-extensions
+
+# Use variables in COPY instructions
+ARG CONFIG_DIR=/etc/app
+ARG BIN_DIR=/usr/local/bin
+
+COPY --from=heredoc-demo ${CONFIG_DIR}/config.json ${CONFIG_DIR}/
+COPY --from=heredoc-demo ${BIN_DIR}/setup.sh ${BIN_DIR}/
+
+# Advanced RUN with conditional execution
+RUN <<EOF
+set -e
+
+# Conditional package installation
+if [ -f /etc/apk/repositories ]; then
+    # Alpine Linux
+    apk add --no-cache \
+        ca-certificates \
+        tzdata \
+        curl \
+        jq \
+        bash
+elif [ -f /etc/debian_version ]; then
+    # Debian/Ubuntu
+    apt-get update && apt-get install -y \
+        ca-certificates \
+        tzdata \
+        curl \
+        jq \
+        bash \
+    && rm -rf /var/lib/apt/lists/*
+elif [ -f /etc/redhat-release ]; then
+    # Red Hat/CentOS
+    yum install -y \
+        ca-certificates \
+        curl \
+        jq \
+        bash
+fi
+
+# Create application user
+if ! id -u appuser >/dev/null 2>&1; then
+    if command -v adduser >/dev/null 2>&1; then
+        # Alpine/BusyBox
+        adduser -D -s /bin/bash appuser
+    else
+        # GNU/Linux
+        useradd -m -s /bin/bash appuser
+    fi
+fi
+
+echo "Base setup completed"
+EOF
+
+# Experimental: BuildKit cache mount with ownership
+RUN --mount=type=cache,target=/var/cache,uid=1000,gid=1000 <<EOF
+set -e
+
+# Setup cache directory with proper ownership
+mkdir -p /var/cache/app
+chown -R appuser:appuser /var/cache/app
+
+# Simulate caching operations
+echo "Initializing cache..." > /var/cache/app/init.log
+date >> /var/cache/app/init.log
+
+echo "Cache setup completed"
+EOF
+
+# Experimental: Multi-line environment variables
+ENV MULTILINE_VAR="line1\
+line2\
+line3" \
+    JSON_CONFIG='{\
+        "enabled": true,\
+        "timeout": 30,\
+        "retries": 3\
+    }' \
+    BASH_SCRIPT='#!/bin/bash\n\
+    echo "Multi-line script"\n\
+    echo "in environment variable"'
+
+# Experimental: Complex HEALTHCHECK with here-doc
+COPY <<EOF /usr/local/bin/health.sh
+#!/bin/bash
+set -e
+
+# Comprehensive health check
+check_http() {
+    local url="http://localhost:8080/health"
+    local response
+    
+    response=\$(curl -sf "\$url" 2>/dev/null) || return 1
+    
+    # Validate JSON response
+    echo "\$response" | jq -e '.status == "healthy"' >/dev/null 2>&1
+}
+
+check_process() {
+    pgrep -f "app" >/dev/null 2>&1
+}
+
+check_disk() {
+    local usage
+    usage=\$(df /tmp | awk 'NR==2 {print \$5}' | sed 's/%//')
+    [ "\$usage" -lt 90 ]
+}
+
+main() {
+    echo "Running comprehensive health check..."
+    
+    check_process && echo "✓ Process check passed" || {
+        echo "✗ Process check failed"
+        return 1
+    }
+    
+    check_http && echo "✓ HTTP check passed" || {
+        echo "✗ HTTP check failed"  
+        return 1
+    }
+    
+    check_disk && echo "✓ Disk check passed" || {
+        echo "✗ Disk check failed"
+        return 1
+    }
+    
+    echo "All health checks passed"
+    return 0
+}
+
+main "\$@"
+EOF
+
+RUN chmod +x /usr/local/bin/health.sh
+
+# Advanced healthcheck using the script
+HEALTHCHECK --interval=30s --timeout=15s --start-period=60s --retries=3 \
+    CMD ["/usr/local/bin/health.sh"]
+
+# Final experimental stage
+FROM syntax-extensions AS final-experimental
+
+# Switch to non-root user
+USER appuser
+
+# Copy application binary based on architecture
+COPY --from=cross-builder /src/app-* /usr/local/bin/
+
+# Create startup script with error handling
+COPY <<EOF /home/appuser/start.sh
+#!/bin/bash
+set -euo pipefail
+
+# Error handler
+handle_error() {
+    echo "Error on line \$1"
+    exit 1
+}
+
+trap 'handle_error \$LINENO' ERR
+
+# Start application
+echo "Starting experimental application..."
+echo "Platform: \$(uname -m)"
+echo "User: \$(whoami)"
+
+# Find the correct binary for current architecture
+ARCH=\$(uname -m)
+case \$ARCH in
+    x86_64) BINARY="app-amd64" ;;
+    aarch64) BINARY="app-arm64" ;;
+    armv7l) BINARY="app-arm" ;;
+    *) BINARY="app-amd64" ;;
+esac
+
+if [ -f "/usr/local/bin/\$BINARY" ]; then
+    echo "Using binary: \$BINARY"
+    exec "/usr/local/bin/\$BINARY"
+else
+    echo "Binary \$BINARY not found, trying default..."
+    exec "/usr/local/bin/app-amd64"
+fi
+EOF
+
+RUN chmod +x /home/appuser/start.sh
+
+WORKDIR /home/appuser
+
+EXPOSE 8080
+
+CMD ["./start.sh"]
+
+# Usage examples:
+# 
+# Enable experimental features:
+# export DOCKER_BUILDKIT=1
+# export BUILDKIT_INLINE_BUILDINFO_ATTRS=1
+#
+# Build with experimental features:
+# docker build --progress=plain -f Dockerfile.experimental .
+#
+# Multi-platform build:
+# docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile.experimental .
+#
+# Build specific stage:
+# docker build --target heredoc-demo -f Dockerfile.experimental .
