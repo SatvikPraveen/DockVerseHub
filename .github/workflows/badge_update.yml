@@ -9,6 +9,9 @@ on:
     - cron: '0 6 * * *'
   workflow_dispatch: # Allow manual trigger
 
+permissions:
+  contents: write
+  
 jobs:
   update-badges:
     name: Update Repository Badges
@@ -251,7 +254,7 @@ jobs:
           git config --local user.name "GitHub Action"
           git add README.md
           git commit -m "🏷️ Update README badges [skip ci]" || exit 0
-          git push
+          git push origin main
 
       - name: Generate badge report
         run: |
