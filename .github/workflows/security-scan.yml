@@ -135,9 +135,12 @@ jobs:
         continue-on-error: true
 
       - name: Generate detailed image report
+        id: report-gen
         run: |
           dockerfile_path=${{ matrix.dockerfile }}
           image_tag="${{ steps.build-image.outputs.image_tag }}"
+          # Sanitize filename: replace slashes with dashes
+          safe_name=$(echo "$dockerfile_path" | tr '/' '-' | tr '[:upper:]' '[:lower:]')
 
           echo "# Security Scan Report: $dockerfile_path" > image-security-report.md
           echo "Generated: $(date)" >> image-security-report.md
@@ -147,10 +150,12 @@ jobs:
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
             aquasec/trivy:latest image --format table $image_tag >> image-security-report.md || true
 
+          echo "safe_name=$safe_name" >> $GITHUB_OUTPUT
+
       - name: Upload detailed report
         uses: actions/upload-artifact@v4
         with:
-          name: image-security-report-${{ matrix.dockerfile }}
+          name: image-security-report-${{ steps.report-gen.outputs.safe_name }}
           path: image-security-report.md
           retention-days: 30
 
