@@ -192,20 +192,20 @@ jobs:
                       content = f.read()
                   
                   # Define badge section
-                  badge_section = f"""<!-- BADGES START -->
-![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white)
-![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat&logo=docker&logoColor=white)
-![Dockerfiles]({badges['dockerfiles']})
-![Compose Files]({badges['compose_files']})
-![Labs]({badges['labs']})
-![Concepts]({badges['concepts']})
-![Stars]({badges['stars']})
-![Forks]({badges['forks']})
-![Issues]({badges['issues']})
-![Last Updated]({badges['last_updated']})
-![License](https://img.shields.io/badge/License-MIT-green.svg)
-![Contributions Welcome](https://img.shields.io/badge/Contributions-Welcome-brightgreen.svg)
-<!-- BADGES END -->"""
+                  badge_section = "<!-- BADGES START -->\n"
+                  badge_section += "![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white)\n"
+                  badge_section += "![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat&logo=docker&logoColor=white)\n"
+                  badge_section += f"![Dockerfiles]({badges['dockerfiles']})\n"
+                  badge_section += f"![Compose Files]({badges['compose_files']})\n"
+                  badge_section += f"![Labs]({badges['labs']})\n"
+                  badge_section += f"![Concepts]({badges['concepts']})\n"
+                  badge_section += f"![Stars]({badges['stars']})\n"
+                  badge_section += f"![Forks]({badges['forks']})\n"
+                  badge_section += f"![Issues]({badges['issues']})\n"
+                  badge_section += f"![Last Updated]({badges['last_updated']})\n"
+                  badge_section += "![License](https://img.shields.io/badge/License-MIT-green.svg)\n"
+                  badge_section += "![Contributions Welcome](https://img.shields.io/badge/Contributions-Welcome-brightgreen.svg)\n"
+                  badge_section += "<!-- BADGES END -->"
                   
                   # Update or add badge section
                   if '<!-- BADGES START -->' in content:
