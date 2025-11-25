@@ -1,5 +1,19 @@
 # DockVerseHub - Comprehensive Docker Learning Platform
 
+<!-- BADGES START -->
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white)
+![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat&logo=docker&logoColor=white)
+![Dockerfiles](https://img.shields.io/badge/Dockerfiles-33-blue?style=flat)
+![Compose Files](https://img.shields.io/badge/Compose%20Files-19-green?style=flat)
+![Labs](https://img.shields.io/badge/Labs-5-orange?style=flat)
+![Concepts](https://img.shields.io/badge/Concepts-9-purple?style=flat)
+![Stars](https://img.shields.io/badge/Stars-0-yellow?style=flat)
+![Forks](https://img.shields.io/badge/Forks-0-lightgrey?style=flat)
+![Issues](https://img.shields.io/badge/Issues-0-green?style=flat)
+![Last Updated](https://img.shields.io/badge/Last%20Updated-2025-11-25-brightgreen?style=flat)
+![License](https://img.shields.io/badge/License-MIT-green.svg)
+![Contributions Welcome](https://img.shields.io/badge/Contributions-Welcome-brightgreen.svg)
+<!-- BADGES END -->
 [![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 [![Docker Compose](https://img.shields.io/badge/Docker%20Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://docs.docker.com/compose/)
 [![CI/CD](https://github.com/SatvikPraveen/DockVerseHub/workflows/DockVerseHub%20CI%2FCD/badge.svg)](https://github.com/SatvikPraveen/DockVerseHub/actions)
