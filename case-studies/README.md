@@ -24,12 +24,35 @@ Discover how large organizations implemented Docker at scale across multiple tea
 
 ## 🎯 What You'll Learn
 
-- **Migration Strategies** - Different approaches to containerizing existing applications
-- **Scaling Challenges** - Common issues when moving from development to production
+- **Migration Strategies** - Different approaches to containerizing existing applications (see [Adoption Strategies](ADOPTION_STRATEGIES.md))
+- **Scaling Challenges** - Common issues when moving from development to production (see [Common Challenges](COMMON_CHALLENGES.md))
 - **Team Dynamics** - How Docker adoption affects development workflows
-- **Cost Optimization** - Real numbers on infrastructure savings
+- **Cost Optimization** - Real numbers on infrastructure savings (see [Quick Reference](CASE_STUDIES_QUICK_REFERENCE.md))
 - **Security Considerations** - Enterprise-grade security implementations
 - **Performance Insights** - Actual performance impacts and optimizations
+
+## 📚 Supplementary Guides
+
+To get the most from these case studies, we've created three supplementary guides:
+
+1. **[Case Studies Quick Reference](CASE_STUDIES_QUICK_REFERENCE.md)** - Side-by-side metrics comparison
+   - Key performance metrics for both case studies
+   - Financial ROI breakdown
+   - Common success patterns
+   - Timeline insights and technology stack comparison
+
+2. **[Adoption Strategies](ADOPTION_STRATEGIES.md)** - Proven implementation approaches
+   - Lift-and-Shift strategy (quick wins)
+   - Refactoring & Optimization (modernization)
+   - Greenfield Microservices (cloud-native design)
+   - Hybrid strategies for large organizations
+   - Decision framework to choose your approach
+
+3. **[Common Challenges & Solutions](COMMON_CHALLENGES.md)** - Real obstacles and proven solutions
+   - Top 10 challenges with impact analysis
+   - Real examples from case studies
+   - Detailed solutions and prevention checklists
+   - Change management strategies
 
 ## 🔍 Key Themes
 
