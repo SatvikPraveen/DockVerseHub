@@ -33,8 +33,9 @@ def health_check():
 @app.route('/info')
 def info():
     """System information endpoint"""
+    import sys
     return jsonify({
-        'python_version': os.sys.version,
+        'python_version': sys.version,
         'hostname': socket.gethostname(),
         'environment': os.getenv('FLASK_ENV', 'development'),
         'custom_message': os.getenv('CUSTOM_MESSAGE', 'Not set')

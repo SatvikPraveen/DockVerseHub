@@ -39,10 +39,9 @@ FROM base as production
 
 # Copy optimized nginx configuration
 COPY nginx.conf /etc/nginx/nginx.conf
-COPY ssl/ /etc/nginx/ssl/
 
 # Create directories and set permissions
-RUN mkdir -p /var/cache/nginx /var/log/nginx /var/www/static && \
+RUN mkdir -p /var/cache/nginx /var/log/nginx /var/www/static /etc/nginx/ssl && \
     chown -R nginx-user:nginx-group /var/cache/nginx && \
     chown -R nginx-user:nginx-group /var/log/nginx && \
     chown -R nginx-user:nginx-group /var/www/static && \

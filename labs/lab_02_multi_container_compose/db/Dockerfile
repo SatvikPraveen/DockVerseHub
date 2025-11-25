@@ -12,13 +12,12 @@ RUN mkdir -p /docker-entrypoint-initdb.d
 
 # Copy initialization scripts
 COPY init.sql /docker-entrypoint-initdb.d/01-init.sql
-COPY migrations/ /migrations/
+
+# Create necessary directories
+RUN mkdir -p /migrations /etc/postgresql
 
 # Set permissions
-RUN chmod +x /docker-entrypoint-initdb.d/01-init.sql
-
-# Custom PostgreSQL configuration
-COPY postgresql.conf /etc/postgresql/postgresql.conf
+RUN chmod +x /docker-entrypoint-initdb.d/*.sql
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \

@@ -349,3 +349,108 @@ def get_user(current_user, user_id):
                 'phone': profile.phone if profile else ''
             }
         }
+        
+        span['end_time'] = datetime.datetime.now()
+        send_to_jaeger(span)
+        
+        return jsonify({'user': user_data})
+        
+    except Exception as e:
+        logger.error(f"Get user error: {str(e)}")
+        return jsonify({'error': 'Failed to get user information'}), 500
+
+@app.route('/api/users/<int:user_id>', methods=['PUT'])
+@token_required
+def update_user(current_user, user_id):
+    """Update user information"""
+    span = create_span('update_user')
+    
+    try:
+        # Check if user can update this information
+        if current_user.id != user_id and current_user.role != 'admin':
+            return jsonify({'error': 'Insufficient privileges'}), 403
+        
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        data = request.get_json()
+        
+        # Update user fields
+        if 'email' in data:
+            if User.query.filter_by(email=data['email']).filter(User.id != user_id).first():
+                return jsonify({'error': 'Email already in use'}), 409
+            user.email = data['email']
+        
+        if 'username' in data:
+            if User.query.filter_by(username=data['username']).filter(User.id != user_id).first():
+                return jsonify({'error': 'Username already taken'}), 409
+            user.username = data['username']
+        
+        if 'password' in data:
+            user.password_hash = generate_password_hash(data['password'])
+        
+        db.session.commit()
+        
+        logger.info(f"User updated: {user.email}")
+        
+        span['end_time'] = datetime.datetime.now()
+        send_to_jaeger(span)
+        
+        return jsonify({'message': 'User updated successfully'})
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Update user error: {str(e)}")
+        return jsonify({'error': 'Failed to update user'}), 500
+
+@app.route('/api/users/<int:user_id>', methods=['DELETE'])
+@token_required
+def delete_user(current_user, user_id):
+    """Delete user"""
+    span = create_span('delete_user')
+    
+    try:
+        # Only admins can delete users, or users can delete themselves
+        if current_user.id != user_id and current_user.role != 'admin':
+            return jsonify({'error': 'Insufficient privileges'}), 403
+        
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Soft delete - deactivate account
+        user.is_active = False
+        db.session.commit()
+        
+        logger.info(f"User deleted: {user.email}")
+        
+        span['end_time'] = datetime.datetime.now()
+        send_to_jaeger(span)
+        
+        return jsonify({'message': 'User deleted successfully'})
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Delete user error: {str(e)}")
+        return jsonify({'error': 'Failed to delete user'}), 500
+
+@app.errorhandler(404)
+def not_found(error):
+    """404 error handler"""
+    return jsonify({'error': 'Resource not found'}), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    """500 error handler"""
+    db.session.rollback()
+    return jsonify({'error': 'Internal server error'}), 500
+
+if __name__ == '__main__':
+    port = int(os.getenv('PORT', 5000))
+    debug = os.getenv('FLASK_ENV') == 'development'
+    
+    print(f"Starting User Service on port {port}")
+    print(f"Debug mode: {debug}")
+    
+    app.run(host='0.0.0.0', port=port, debug=debug)

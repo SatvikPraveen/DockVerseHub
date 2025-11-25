@@ -51,14 +51,11 @@ COPY nginx.conf /etc/nginx/nginx.conf
 COPY rate-limiting.conf /etc/nginx/conf.d/rate-limiting.conf
 
 # Security enhancements
-RUN addgroup -g 101 -S nginx-group && \
-    adduser -S nginx-user -u 101 -G nginx-group
-
-# Create directories with proper permissions
+# Note: nginx user/group already exists in Alpine, so we just ensure proper permissions
 RUN mkdir -p /var/log/nginx /var/cache/nginx /etc/nginx/ssl && \
-    chown -R nginx-user:nginx-group /var/log/nginx && \
-    chown -R nginx-user:nginx-group /var/cache/nginx && \
-    chown -R nginx-user:nginx-group /etc/nginx/ssl
+    chown -R nginx:nginx /var/log/nginx && \
+    chown -R nginx:nginx /var/cache/nginx && \
+    chown -R nginx:nginx /etc/nginx/ssl
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \

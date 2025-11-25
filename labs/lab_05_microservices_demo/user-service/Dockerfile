@@ -57,11 +57,9 @@ RUN pip install -r requirements.txt gunicorn
 # Copy application code
 COPY app.py .
 COPY models/ ./models/
-COPY templates/ ./templates/ 
-COPY static/ ./static/
 
 # Create necessary directories
-RUN mkdir -p /app/logs /app/uploads && \
+RUN mkdir -p /app/logs /app/uploads /app/templates /app/static && \
     chown -R appuser:appuser /app
 
 # Switch to non-root user
