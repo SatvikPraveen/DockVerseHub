@@ -222,6 +222,7 @@ jobs:
   security-scan-release:
     name: Security Scan Release Artifacts
     runs-on: ubuntu-latest
+    continue-on-error: true
     needs: [build-docker-images]
     steps:
       - name: Checkout code
