@@ -1,0 +1,70 @@
+version: "3.8"
+
+services:
+  app-naive:
+    build:
+      context: .
+      dockerfile: Dockerfile.naive
+    image: image-optimization:naive
+    container_name: app-naive
+    ports:
+      - "5001:5000"
+    environment:
+      - FLASK_ENV=production
+      - PORT=5000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  app-optimized:
+    build:
+      context: .
+      dockerfile: Dockerfile.optimized
+    image: image-optimization:optimized
+    container_name: app-optimized
+    ports:
+      - "5002:5000"
+    environment:
+      - FLASK_ENV=production
+      - PORT=5000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  app-alpine:
+    build:
+      context: .
+      dockerfile: Dockerfile.alpine
+    image: image-optimization:alpine
+    container_name: app-alpine
+    ports:
+      - "5003:5000"
+    environment:
+      - FLASK_ENV=production
+      - PORT=5000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  app-distroless:
+    build:
+      context: .
+      dockerfile: Dockerfile.distroless
+    image: image-optimization:distroless
+    container_name: app-distroless
+    ports:
+      - "5004:5000"
+    environment:
+      - FLASK_ENV=production
+      - PORT=5000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

@@ -2,9 +2,13 @@
 
 from flask import Flask, jsonify
 import os
+import sys
 import datetime
 import socket
-import psutil
+try:
+    import psutil
+except ImportError:
+    psutil = None
 
 app = Flask(__name__)
 
@@ -15,7 +19,7 @@ def hello():
         'message': 'Docker Image Optimization Demo',
         'hostname': socket.gethostname(),
         'timestamp': datetime.datetime.now().isoformat(),
-        'python_version': f"{os.sys.version_info.major}.{os.sys.version_info.minor}.{os.sys.version_info.micro}",
+        'python_version': f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
         'status': 'success'
     })
 
@@ -32,6 +36,12 @@ def health():
 def metrics():
     """System metrics endpoint"""
     try:
+        if psutil is None:
+            return jsonify({
+                'message': 'psutil not available - minimal image',
+                'timestamp': datetime.datetime.now().isoformat()
+            })
+        
         memory = psutil.virtual_memory()
         cpu_percent = psutil.cpu_percent()
         disk = psutil.disk_usage('/')
@@ -50,11 +60,12 @@ def metrics():
             },
             'timestamp': datetime.datetime.now().isoformat()
         })
-    except ImportError:
+    except Exception as e:
         return jsonify({
-            'message': 'psutil not available - minimal image',
+            'message': 'Error getting metrics',
+            'error': str(e),
             'timestamp': datetime.datetime.now().isoformat()
-        })
+        }), 500
 
 @app.route('/info')
 def info():
@@ -62,8 +73,8 @@ def info():
     return jsonify({
         'container_info': {
             'hostname': socket.gethostname(),
-            'platform': os.sys.platform,
-            'python_version': os.sys.version,
+            'platform': sys.platform,
+            'python_version': sys.version,
             'environment_variables': {
                 key: value for key, value in os.environ.items() 
                 if not any(secret in key.upper() for secret in ['PASSWORD', 'SECRET', 'TOKEN', 'KEY'])

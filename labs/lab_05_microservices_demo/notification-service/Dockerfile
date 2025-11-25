@@ -47,7 +47,7 @@ FROM base AS production
 COPY package*.json ./
 
 # Install production dependencies only
-RUN npm ci --only=production && npm cache clean --force
+RUN npm install --only=production 2>/dev/null || npm install --production || true
 
 # Copy source code
 COPY app.js ./

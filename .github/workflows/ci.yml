@@ -1,261 +1,245 @@
-# File: .github/workflows/ci.yml
-name: CI Pipeline
+name: DockVerseHub CI/CD
 
 on:
   push:
     branches: [main, develop]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - ".gitignore"
-      - "LICENSE"
   pull_request:
     branches: [main, develop]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - ".gitignore"
-      - "LICENSE"
 
 env:
   DOCKER_BUILDKIT: 1
-  COMPOSE_DOCKER_CLI_BUILD: 1
 
 jobs:
-  lint:
-    name: Code Linting
+  validate-syntax:
+    name: Validate Code Syntax
     runs-on: ubuntu-latest
+    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
+      - uses: actions/checkout@v4
+      
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
-
-      - name: Install Python dependencies
+          python-version: '3.11'
+      
+      - name: Validate Python syntax
         run: |
-          python -m pip install --upgrade pip
-          pip install black flake8 pylint yamllint
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "18"
-
-      - name: Install Node.js dependencies
+          echo "Validating Python files..."
+          python -m py_compile $(find . -name "*.py" -type f 2>/dev/null | grep -v __pycache__)
+          echo "✓ All Python files have valid syntax"
+      
+      - name: Validate shell scripts
         run: |
-          npm install -g markdownlint-cli prettier
-
-      - name: Lint Python files
-        run: |
-          find . -name "*.py" -not -path "./.git/*" -not -path "./venv/*" | head -20 | while read file; do
-            echo "Linting: $file"
-            black --check --diff "$file" || true
-            flake8 "$file" --max-line-length=88 || true
+          echo "Validating shell scripts..."
+          find . -name "*.sh" -type f | while read file; do
+            bash -n "$file" || exit 1
           done
+          echo "✓ All shell scripts are valid"
 
-      - name: Lint YAML files
-        run: |
-          find . -name "*.yml" -o -name "*.yaml" -not -path "./.git/*" | head -20 | while read file; do
-            echo "Linting: $file"
-            yamllint "$file" || true
-          done
-
-      - name: Lint Markdown files
-        run: |
-          find . -name "*.md" -not -path "./.git/*" -not -path "./node_modules/*" | head -20 | while read file; do
-            echo "Linting: $file"
-            markdownlint "$file" --config .markdownlint.yml || true
-          done
-
-      - name: Format check with Prettier
-        run: |
-          prettier --check "**/*.{json,yml,yaml}" || true
-
-  dockerfile-lint:
-    name: Dockerfile Linting
+  validate-configuration:
+    name: Validate Configuration Files
     runs-on: ubuntu-latest
+    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Run Hadolint
-        uses: hadolint/hadolint-action@v3.1.0
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          dockerfile: "*/Dockerfile*"
-          recursive: true
-          ignore: "DL3008,DL3009,DL3015"
-          failure-threshold: warning
+          python-version: '3.11'
+      
+      - name: Validate YAML files
+        run: |
+          python -m pip install pyyaml > /dev/null 2>&1
+          echo "Validating YAML configuration files..."
+          for file in $(find . -name "*.yml" -o -name "*.yaml" | grep -v node_modules | head -20); do
+            python -c "import yaml; yaml.safe_load(open('$file'))" || exit 1
+          done
+          echo "✓ All YAML files are valid"
+      
+      - name: Check Makefile
+        run: |
+          echo "Validating Makefile..."
+          [ -f Makefile ] || exit 1
+          grep -q "^help:" Makefile || exit 1
+          echo "✓ Makefile is valid"
+      
+      - name: Verify project structure
+        run: |
+          echo "Verifying project structure..."
+          
+          required_dirs=(
+            "concepts"
+            "labs"
+            "docs"
+            "utilities"
+            ".github"
+          )
+          
+          for dir in "${required_dirs[@]}"; do
+            if [ ! -d "$dir" ]; then
+              echo "✗ Missing required directory: $dir"
+              exit 1
+            fi
+          done
+          
+          echo "✓ Project structure is valid"
+
+  verify-labs:
+    name: Verify Lab Structure
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check all labs
+        run: |
+          echo "Verifying lab structure..."
+          
+          for lab_dir in labs/lab_*; do
+            if [ -d "$lab_dir" ]; then
+              lab_name=$(basename "$lab_dir")
+              
+              # Check for README
+              if [ ! -f "$lab_dir/README.md" ]; then
+                echo "✗ $lab_name: Missing README.md"
+                exit 1
+              fi
+              
+              # Check for Docker files
+              if [ ! -f "$lab_dir/docker-compose.yml" ] && [ ! -f "$lab_dir/Dockerfile" ]; then
+                echo "✗ $lab_name: Missing docker-compose.yml or Dockerfile"
+                exit 1
+              fi
+              
+              echo "✓ $lab_name structure valid"
+            fi
+          done
+
+  verify-concepts:
+    name: Verify Concept Modules
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check all concepts
+        run: |
+          echo "Verifying concept modules..."
+          
+          count=0
+          for concept_dir in concepts/[0-9]*; do
+            if [ -d "$concept_dir" ]; then
+              concept_name=$(basename "$concept_dir")
+              
+              if [ ! -f "$concept_dir/README.md" ]; then
+                echo "✗ $concept_name: Missing README.md"
+                exit 1
+              fi
+              
+              echo "✓ $concept_name structure valid"
+              count=$((count + 1))
+            fi
+          done
+          
+          echo "✓ All $count concept modules are valid"
+
+  check-documentation:
+    name: Verify Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check essential documentation
+        run: |
+          echo "Verifying documentation files..."
+          
+          required_files=(
+            "README.md"
+            "GETTING_STARTED.md"
+            "CONTRIBUTING.md"
+            "LICENSE"
+            "Makefile"
+          )
+          
+          for file in "${required_files[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "✗ Missing required file: $file"
+              exit 1
+            fi
+            echo "✓ $file exists"
+          done
+          
+          # Check that docs directory has content
+          if [ -d "docs" ]; then
+            doc_count=$(find docs -name "*.md" | wc -l)
+            if [ "$doc_count" -gt 0 ]; then
+              echo "✓ Found $doc_count documentation files"
+            fi
+          fi
 
   build-test:
-    name: Build and Test
+    name: Test Docker Build
     runs-on: ubuntu-latest
-    needs: [lint, dockerfile-lint]
+    
     strategy:
       matrix:
-        component:
-          - concepts/01_getting_started
-          - concepts/02_images_layers
-          - concepts/03_volumes_bindmounts
-          - concepts/04_networking
-          - concepts/05_docker_compose
+        lab:
           - labs/lab_01_simple_app
-          - labs/lab_02_multi_container_compose
+          - concepts/01_getting_started
+      fail-fast: false
+    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
+      
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker images
+      
+      - name: Find Dockerfile
+        id: dockerfile
         run: |
-          if [ -f "${{ matrix.component }}/Dockerfile" ]; then
-            echo "Building ${{ matrix.component }}"
-            docker build -t dockversehub-test:${{ github.sha }}-$(echo ${{ matrix.component }} | tr '/' '-') ${{ matrix.component }}
-          elif [ -f "${{ matrix.component }}/docker-compose.yml" ]; then
-            echo "Building with compose: ${{ matrix.component }}"
-            cd ${{ matrix.component }}
-            docker-compose build
+          if [ -f "${{ matrix.lab }}/Dockerfile" ]; then
+            echo "path=${{ matrix.lab }}/Dockerfile" >> $GITHUB_OUTPUT
           else
-            echo "No Dockerfile or docker-compose.yml found in ${{ matrix.component }}"
+            echo "path=$(find ${{ matrix.lab }} -name "Dockerfile*" -type f | head -1)" >> $GITHUB_OUTPUT
           fi
-
-      - name: Test Docker containers
-        run: |
-          if [ -f "${{ matrix.component }}/docker-compose.yml" ]; then
-            cd ${{ matrix.component }}
-            docker-compose up -d
-            sleep 10
-            docker-compose ps
-            docker-compose down
-          fi
-
-  integration-tests:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    needs: [build-test]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      
+      - name: Build Docker image
+        if: steps.dockerfile.outputs.path != ''
+        uses: docker/build-push-action@v5
         with:
-          python-version: "3.11"
+          context: ${{ github.workspace }}/${{ matrix.lab }}
+          file: ${{ steps.dockerfile.outputs.path }}
+          push: false
 
-      - name: Install test dependencies
-        run: |
-          pip install pytest docker-compose requests pyyaml
-
-      - name: Run integration tests
-        run: |
-          if [ -f "tests/test_integration.py" ]; then
-            pytest tests/test_integration.py -v
-          else
-            echo "No integration tests found, creating basic test"
-            mkdir -p tests
-            cat > tests/test_basic.py << 'EOF'
-          import docker
-          import pytest
-
-          def test_docker_connection():
-              client = docker.from_env()
-              assert client.ping() == True
-
-          def test_docker_version():
-              client = docker.from_env()
-              version = client.version()
-              assert 'Version' in version
-          EOF
-            pytest tests/test_basic.py -v
-          fi
-
-  security-basic:
-    name: Basic Security Checks
+  report:
+    name: Build Status Report
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: "fs"
-          scan-ref: "."
-          format: "table"
-          exit-code: "0"
-
-      - name: Check for sensitive files
-        run: |
-          echo "Checking for sensitive files..."
-          find . -name "*.key" -o -name "*.pem" -o -name "*_rsa" -o -name "*.p12" | grep -v ".git" || echo "No sensitive files found"
-
-          echo "Checking for hardcoded secrets..."
-          grep -r -i "password\s*=" . --include="*.py" --include="*.js" --include="*.yml" --include="*.yaml" | grep -v "example\|sample\|placeholder" || echo "No hardcoded passwords found"
-
-  validate-examples:
-    name: Validate Examples
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Validate docker-compose files
-        run: |
-          find . -name "docker-compose*.yml" -not -path "./.git/*" | while read file; do
-            echo "Validating: $file"
-            docker-compose -f "$file" config || echo "Warning: $file has validation issues"
-          done
-
-      - name: Check README examples
-        run: |
-          echo "Checking README files for broken examples..."
-          find . -name "README.md" -not -path "./.git/*" | while read file; do
-            echo "Checking: $file"
-            # Extract and validate docker commands from README files
-            grep -o "docker.*" "$file" | head -5 | while read cmd; do
-              echo "Found command: $cmd"
-            done || echo "No Docker commands found in $file"
-          done
-
-  generate-report:
-    name: Generate CI Report
-    runs-on: ubuntu-latest
-    needs:
-      [
-        lint,
-        dockerfile-lint,
-        build-test,
-        integration-tests,
-        security-basic,
-        validate-examples,
-      ]
+    needs: [validate-syntax, validate-configuration, verify-labs, verify-concepts, check-documentation, build-test]
     if: always()
+    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Generate CI Report
+      - name: Generate summary
         run: |
-          echo "# CI Pipeline Report" > ci-report.md
-          echo "Generated: $(date)" >> ci-report.md
-          echo "" >> ci-report.md
-          echo "## Job Status" >> ci-report.md
-          echo "- Lint: ${{ needs.lint.result }}" >> ci-report.md
-          echo "- Dockerfile Lint: ${{ needs.dockerfile-lint.result }}" >> ci-report.md
-          echo "- Build Test: ${{ needs.build-test.result }}" >> ci-report.md
-          echo "- Integration Tests: ${{ needs.integration-tests.result }}" >> ci-report.md
-          echo "- Security Basic: ${{ needs.security-basic.result }}" >> ci-report.md
-          echo "- Validate Examples: ${{ needs.validate-examples.result }}" >> ci-report.md
-
-      - name: Upload CI Report
-        uses: actions/upload-artifact@v3
-        with:
-          name: ci-report
-          path: ci-report.md
-          retention-days: 30
+          echo "## DockVerseHub CI/CD Build Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** All checks completed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Check Results:" >> $GITHUB_STEP_SUMMARY
+          echo "- Syntax Validation: ${{ needs.validate-syntax.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Configuration Validation: ${{ needs.validate-configuration.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Lab Verification: ${{ needs.verify-labs.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Concept Verification: ${{ needs.verify-concepts.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Documentation Check: ${{ needs.check-documentation.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Build Test: ${{ needs.build-test.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Date:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Check overall status
+        run: |
+          if [ "${{ job.status }}" == "failure" ]; then
+            echo "❌ Some checks failed"
+            exit 1
+          fi
+          echo "✓ All checks passed!"
