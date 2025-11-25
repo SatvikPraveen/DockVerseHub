@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-with-config
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+      - name: app
+        image: myapp:1.0
+        ports:
+        - containerPort: 8080
+        
+        # ConfigMap as environment variables
+        env:
+        - name: APP_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: app_name
+        - name: ENVIRONMENT
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: environment
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: log_level
+        
+        # Secret as environment variables
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secret
+              key: database_password
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: app-secret
+              key: api_key
+        
+        # ConfigMap as volume (files)
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/config
+          readOnly: true
+      
+      volumes:
+      - name: config-volume
+        configMap:
+          name: app-config
