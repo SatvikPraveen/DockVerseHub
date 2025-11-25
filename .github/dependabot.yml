@@ -1,0 +1,64 @@
+version: 2
+updates:
+  # Python dependencies
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:00"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "security"
+    reviewers:
+      - "SatvikPraveen"
+    allow:
+      - dependency-type: "direct"
+      - dependency-type: "indirect"
+    commit-message:
+      prefix: "⬆️ Bump"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "/"
+    # Security updates are always enabled and run immediately
+    security-updates-only: false
+    # Create separate PR for each dependency update
+    grouped-updates:
+      - patterns:
+          - "werkzeug"
+          - "flask*"
+          - "gunicorn"
+      - patterns:
+          - "cryptography*"
+          - "bcrypt"
+          - "paramiko"
+      - patterns:
+          - "django*"
+          - "sqlalchemy*"
+
+  # Docker image updates
+  - package-ecosystem: "docker"
+    directory: "/concepts"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "docker"
+      - "dependencies"
+    reviewers:
+      - "SatvikPraveen"
+
+  # GitHub Actions updates
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "github-actions"
+      - "ci/cd"
+    reviewers:
+      - "SatvikPraveen"
+    # Keep GitHub Actions up to date
+    security-updates-only: false

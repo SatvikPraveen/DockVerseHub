@@ -5,58 +5,58 @@
 
 # Core utilities
 click>=8.1.0                    # Command-line interface creation
-rich>=13.0.0                    # Rich text and beautiful formatting
-pyyaml>=6.0                     # YAML parsing for Docker Compose files
-jinja2>=3.1.0                   # Template engine for code generation
+rich>=13.7.0                    # Rich text and beautiful formatting
+pyyaml>=6.0.1                   # YAML parsing for Docker Compose files
+jinja2>=3.1.3                   # Template engine for code generation
 requests>=2.31.0                # HTTP library for API interactions
 
 # Docker and containerization
-docker>=6.1.0                   # Docker Python API
-docker-compose>=1.29.0          # Docker Compose Python API
+docker>=7.0.0                   # Docker Python API
+docker-compose>=1.29.3          # Docker Compose Python API
 
 # Security and vulnerability scanning
 bandit>=1.7.5                   # Security linting for Python code
-safety>=2.3.0                   # Dependency vulnerability checker
+safety>=2.3.5                   # Dependency vulnerability checker
 semgrep>=1.45.0                 # Static analysis security scanner
 
 # Code quality and formatting
-black>=23.0.0                   # Code formatter
-flake8>=6.0.0                   # Code linting
-pylint>=2.17.0                  # Advanced code analysis
-mypy>=1.5.0                     # Static type checking
-isort>=5.12.0                   # Import sorting
+black>=24.0.0                   # Code formatter
+flake8>=7.0.0                   # Code linting
+pylint>=3.0.0                   # Advanced code analysis
+mypy>=1.8.0                     # Static type checking
+isort>=5.13.0                   # Import sorting
 
 # Testing frameworks
-pytest>=7.4.0                   # Testing framework
+pytest>=7.4.3                   # Testing framework
 pytest-cov>=4.1.0               # Coverage reporting
-pytest-mock>=3.11.0             # Mocking utilities
-pytest-docker>=2.0.0            # Docker integration for tests
+pytest-mock>=3.12.0             # Mocking utilities
+pytest-docker>=2.0.1            # Docker integration for tests
 
 # Performance and monitoring
-psutil>=5.9.0                   # System and process utilities
+psutil>=5.9.6                   # System and process utilities
 py-spy>=0.3.14                  # Performance profiling
 memory-profiler>=0.61.0         # Memory usage profiling
 
 # Data processing and analysis
-pandas>=2.0.0                   # Data analysis and manipulation
-matplotlib>=3.7.0               # Plotting and visualization
-seaborn>=0.12.0                 # Statistical data visualization
-numpy>=1.24.0                   # Numerical computing
+pandas>=2.1.4                   # Data analysis and manipulation
+matplotlib>=3.8.0               # Plotting and visualization
+seaborn>=0.13.0                 # Statistical data visualization
+numpy>=1.26.0                   # Numerical computing
 
 # Web scraping and APIs
-beautifulsoup4>=4.12.0          # HTML/XML parsing
+beautifulsoup4>=4.12.2          # HTML/XML parsing
 scrapy>=2.11.0                  # Web scraping framework
 
 # Database connectivity
-sqlalchemy>=2.0.0               # SQL toolkit and ORM
-psycopg2-binary>=2.9.0          # PostgreSQL adapter
-pymongo>=4.5.0                  # MongoDB driver
-redis>=4.6.0                    # Redis client
+sqlalchemy>=2.0.23              # SQL toolkit and ORM
+psycopg2-binary>=2.9.9          # PostgreSQL adapter
+pymongo>=4.6.0                  # MongoDB driver
+redis>=5.0.0                    # Redis client
 
 # File processing
-openpyxl>=3.1.0                 # Excel file processing
+openpyxl>=3.1.2                 # Excel file processing
 python-docx>=0.8.11             # Word document processing
-pillow>=10.0.0                  # Image processing
+pillow>=10.1.0                  # Image processing
 
 # Configuration management
 python-dotenv>=1.0.0            # Environment variable management
@@ -64,24 +64,27 @@ configparser>=6.0.0             # Configuration file parsing
 toml>=0.10.2                    # TOML file support
 
 # Logging and monitoring
-loguru>=0.7.0                   # Advanced logging
-prometheus-client>=0.17.0       # Prometheus metrics client
-structlog>=23.1.0               # Structured logging
+loguru>=0.7.2                   # Advanced logging
+prometheus-client>=0.19.0       # Prometheus metrics client
+structlog>=24.1.0               # Structured logging
 
 # Network and system utilities
 netaddr>=0.9.0                  # Network address manipulation
-paramiko>=3.3.0                 # SSH client
-fabric>=3.2.0                   # Remote execution and deployment
+paramiko>=3.4.0                 # SSH client
+fabric>=3.2.2                   # Remote execution and deployment
 
 # Cryptography and security
-cryptography>=41.0.0            # Cryptographic recipes
-bcrypt>=4.0.0                   # Password hashing
+cryptography>=42.0.0            # Cryptographic recipes
+bcrypt>=4.1.0                   # Password hashing
 pyotp>=2.9.0                    # OTP generation and validation
 
 # Documentation generation
-sphinx>=7.1.0                   # Documentation generator
-sphinx-rtd-theme>=1.3.0         # Read the Docs theme
+sphinx>=7.2.6                   # Documentation generator
+sphinx-rtd-theme>=2.0.0         # Read the Docs theme
 
-Flask==2.3.3
-prometheus-client==0.17.1
-Werkzeug==2.3.7
+# Web frameworks (updated for security)
+Flask>=3.0.0
+prometheus-client>=0.19.0
+Werkzeug>=3.0.0
+gunicorn>=21.2.0
+flask-cors>=4.0.0
