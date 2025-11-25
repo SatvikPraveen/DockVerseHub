@@ -142,7 +142,7 @@ jobs:
           fi
 
       - name: Upload build performance report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: build-performance-${{ matrix.name }}
           path: build-perf-${{ matrix.name }}.md
@@ -278,7 +278,7 @@ jobs:
           docker volume rm perf-test-vol
 
       - name: Upload runtime performance report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: runtime-performance-report
@@ -365,7 +365,7 @@ jobs:
           docker-compose down
 
       - name: Upload load test report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: load-test-report
           path: load-test-report.md
@@ -378,7 +378,7 @@ jobs:
     if: always()
     steps:
       - name: Download performance artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: performance-reports
 
@@ -426,7 +426,7 @@ jobs:
           echo "   - Implement caching strategies" >> performance-summary.md
 
       - name: Upload performance summary
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: performance-regression-analysis
           path: performance-summary.md
