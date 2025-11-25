@@ -145,7 +145,7 @@ jobs:
           done
 
       - name: Upload Dockerfile report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: dockerfile-best-practices-report
           path: dockerfile-report.md
@@ -207,7 +207,7 @@ jobs:
           done
 
       - name: Upload security report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: dockerfile-security-report
           path: security-report.md
@@ -265,7 +265,7 @@ jobs:
           done
 
       - name: Upload optimization report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: dockerfile-optimization-report
           path: optimization-report.md
@@ -302,7 +302,7 @@ jobs:
           echo "5. Run containers as non-root users" >> summary.md
 
       - name: Upload summary
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: dockerfile-lint-summary
           path: summary.md

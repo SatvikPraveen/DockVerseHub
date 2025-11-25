@@ -326,7 +326,7 @@ jobs:
           echo "- **Branch:** gh-pages" >> docs-deployment-report.md
 
       - name: Upload deployment report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: docs-deployment-report
           path: docs-deployment-report.md
@@ -388,7 +388,7 @@ jobs:
           EOF
 
       - name: Upload link validation report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: link-validation-report
           path: link-check-report.md
