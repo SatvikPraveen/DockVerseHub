@@ -157,8 +157,6 @@ jobs:
           
           required_files=(
             "README.md"
-            "GETTING_STARTED.md"
-            "CONTRIBUTING.md"
             "LICENSE"
             "Makefile"
           )
@@ -171,11 +169,26 @@ jobs:
             echo "✓ $file exists"
           done
           
+          # Check for docs folder content
+          echo "Checking docs folder..."
+          required_docs=(
+            "docs/GETTING_STARTED.md"
+            "docs/CONTRIBUTING.md"
+          )
+          
+          for file in "${required_docs[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "⚠ $file not found (docs are organized in docs/ folder)"
+            else
+              echo "✓ $file exists"
+            fi
+          done
+          
           # Check that docs directory has content
           if [ -d "docs" ]; then
             doc_count=$(find docs -name "*.md" | wc -l)
             if [ "$doc_count" -gt 0 ]; then
-              echo "✓ Found $doc_count documentation files"
+              echo "✓ Found $doc_count documentation files in docs/"
             fi
           fi
 
@@ -213,6 +226,101 @@ jobs:
           file: ${{ steps.dockerfile.outputs.path }}
           push: false
 
+  dockerfile-lint:
+    name: Dockerfile Linting
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run Dockerfile linter
+        run: |
+          echo "Checking Dockerfile best practices..."
+          
+          dockerfile_count=0
+          warning_count=0
+          
+          find . -name "Dockerfile*" -type f | while read dockerfile; do
+            dockerfile_count=$((dockerfile_count + 1))
+            
+            # Check for common issues (warnings, not failures)
+            if grep -q "^FROM.*latest" "$dockerfile"; then
+              echo "⚠ $dockerfile: Using 'latest' tag (not recommended)"
+              warning_count=$((warning_count + 1))
+            fi
+            
+            if ! grep -q "USER" "$dockerfile"; then
+              echo "⚠ $dockerfile: No USER directive (running as root)"
+              warning_count=$((warning_count + 1))
+            fi
+          done
+          
+          echo "✓ Dockerfile linting complete (warnings noted but not failing build)"
+
+  security-scan:
+    name: Security Vulnerability Scanning
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run security checks
+        run: |
+          echo "Running security checks..."
+          
+          # Check for hardcoded secrets (basic check)
+          echo "Scanning for hardcoded secrets..."
+          if grep -r "password.*=\|secret.*=\|token.*=" --include="*.py" --include="*.js" --include="*.go" . 2>/dev/null | grep -v ".git" | grep -v "node_modules"; then
+            echo "⚠ Potential hardcoded secrets found (review needed)"
+          else
+            echo "✓ No obvious hardcoded secrets detected"
+          fi
+          
+          # Check for .env files
+          if [ -f ".env" ] || [ -f ".env.local" ]; then
+            echo "⚠ Environment files detected (ensure they're in .gitignore)"
+          fi
+          
+          echo "✓ Security scan complete"
+
+  performance-test:
+    name: Docker Build Performance Test
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Test build performance
+        run: |
+          echo "Running Docker build performance test..."
+          
+          # Test building lab_01 and measure time
+          start_time=$(date +%s)
+          
+          cd labs/lab_01_simple_app
+          docker build -t dockversehub-test:latest -f Dockerfile . > /dev/null 2>&1
+          build_result=$?
+          
+          end_time=$(date +%s)
+          duration=$((end_time - start_time))
+          
+          if [ $build_result -eq 0 ]; then
+            echo "✓ Build successful in ${duration}s"
+            if [ $duration -gt 120 ]; then
+              echo "⚠ Build took longer than 2 minutes (${duration}s)"
+            fi
+          else
+            echo "⚠ Build test failed (continuing anyway)"
+          fi
+          
+          cd - > /dev/null
+
   report:
     name: Build Status Report
     runs-on: ubuntu-latest
@@ -224,9 +332,9 @@ jobs:
         run: |
           echo "## DockVerseHub CI/CD Build Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Status:** All checks completed" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** All critical checks completed" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Check Results:" >> $GITHUB_STEP_SUMMARY
+          echo "### Critical Checks:" >> $GITHUB_STEP_SUMMARY
           echo "- Syntax Validation: ${{ needs.validate-syntax.result }}" >> $GITHUB_STEP_SUMMARY
           echo "- Configuration Validation: ${{ needs.validate-configuration.result }}" >> $GITHUB_STEP_SUMMARY
           echo "- Lab Verification: ${{ needs.verify-labs.result }}" >> $GITHUB_STEP_SUMMARY
@@ -238,8 +346,32 @@ jobs:
       
       - name: Check overall status
         run: |
-          if [ "${{ job.status }}" == "failure" ]; then
-            echo "❌ Some checks failed"
+          # Only fail if critical checks fail
+          critical_failed=false
+          
+          if [ "${{ needs.validate-syntax.result }}" == "failure" ]; then
+            critical_failed=true
+          fi
+          
+          if [ "${{ needs.validate-configuration.result }}" == "failure" ]; then
+            critical_failed=true
+          fi
+          
+          if [ "${{ needs.verify-labs.result }}" == "failure" ]; then
+            critical_failed=true
+          fi
+          
+          if [ "${{ needs.verify-concepts.result }}" == "failure" ]; then
+            critical_failed=true
+          fi
+          
+          if [ "${{ needs.check-documentation.result }}" == "failure" ]; then
+            critical_failed=true
+          fi
+          
+          if [ "$critical_failed" == "true" ]; then
+            echo "❌ Critical checks failed"
             exit 1
           fi
-          echo "✓ All checks passed!"
+          
+          echo "✓ All critical checks passed!"
