@@ -34,7 +34,7 @@ jobs:
           output: "trivy-results.sarif"
 
       - name: Upload Trivy scan results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: "trivy-results.sarif"
@@ -74,23 +74,27 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build image for scanning
+        id: build-image
         run: |
           dockerfile_path=${{ matrix.dockerfile }}
           context_dir=$(dirname $dockerfile_path)
-          image_tag="security-scan:$(echo $dockerfile_path | tr '/' '-')"
+          # Create valid tag: remove leading dots and special chars, replace slashes with dashes
+          image_tag="security-scan-$(echo $dockerfile_path | sed 's/^[./]*//g' | tr '/' '-')"
 
           echo "Building $dockerfile_path in context $context_dir"
+          echo "Image tag: $image_tag"
           docker build -t $image_tag -f $dockerfile_path $context_dir
+          echo "image_tag=$image_tag" >> $GITHUB_OUTPUT
 
       - name: Run Trivy vulnerability scanner (Image)
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: "security-scan:${{ matrix.dockerfile }}"
+          image-ref: "${{ steps.build-image.outputs.image_tag }}"
           format: "sarif"
           output: "trivy-image-results.sarif"
 
       - name: Upload image scan results
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: "trivy-image-results.sarif"
@@ -98,7 +102,7 @@ jobs:
       - name: Generate detailed image report
         run: |
           dockerfile_path=${{ matrix.dockerfile }}
-          image_tag="security-scan:$(echo $dockerfile_path | tr '/' '-')"
+          image_tag="${{ steps.build-image.outputs.image_tag }}"
 
           echo "# Security Scan Report: $dockerfile_path" > image-security-report.md
           echo "Generated: $(date)" >> image-security-report.md
