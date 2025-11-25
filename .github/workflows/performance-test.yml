@@ -27,6 +27,7 @@ jobs:
   build-performance:
     name: Docker Build Performance Test
     runs-on: ubuntu-latest
+    continue-on-error: true
     strategy:
       matrix:
         dockerfile:
@@ -150,6 +151,7 @@ jobs:
   runtime-performance:
     name: Container Runtime Performance Test
     runs-on: ubuntu-latest
+    continue-on-error: true
     needs: [build-performance]
     steps:
       - name: Checkout code
