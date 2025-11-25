@@ -276,4 +276,3 @@ jobs:
           name: badge-update-report
           path: badge-report.md
           retention-days: 30
-                  '
