@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: lab-07
+data:
+  DATABASE_HOST: "postgres-service"
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: "lab07"
+  DATABASE_USER: "postgres"
+  API_BASE_URL: "http://api-service:5000"
+  NODE_ENV: "production"
+  LOG_LEVEL: "info"
