@@ -1,4 +1,5 @@
 # File: .github/workflows/release-automation.yml
+# yamllint disable rule:line-length
 name: Automated Release
 
 on:
