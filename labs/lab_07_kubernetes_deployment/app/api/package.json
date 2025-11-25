@@ -1,0 +1,15 @@
+{
+  "name": "lab-07-api",
+  "version": "1.0.0",
+  "description": "Lab 07 API server",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "node --watch app.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "pg": "^8.8.0",
+    "dotenv": "^16.0.3"
+  }
+}
