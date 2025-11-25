@@ -84,8 +84,8 @@ jobs:
         run: |
           dockerfile_path=${{ matrix.dockerfile }}
           context_dir=$(dirname $dockerfile_path)
-          # Create valid tag: remove leading dots and special chars, replace slashes with dashes
-          image_tag="security-scan-$(echo $dockerfile_path | sed 's/^[./]*//g' | tr '/' '-')"
+          # Create valid tag: remove leading dots and special chars, replace slashes with dashes, convert to lowercase
+          image_tag="security-scan-$(echo $dockerfile_path | sed 's/^[./]*//g' | tr '/' '-' | tr '[:upper:]' '[:lower:]')"
 
           echo "Building $dockerfile_path in context $context_dir"
           echo "Image tag: $image_tag"
