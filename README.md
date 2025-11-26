@@ -5,8 +5,8 @@
 ![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat&logo=docker&logoColor=white)
 ![Dockerfiles](https://img.shields.io/badge/Dockerfiles-37-blue?style=flat)
 ![Compose Files](https://img.shields.io/badge/Compose%20Files-22-green?style=flat)
-![Labs](https://img.shields.io/badge/Labs-7-orange?style=flat)
-![Concepts](https://img.shields.io/badge/Concepts-12-purple?style=flat)
+![Labs](https://img.shields.io/badge/Labs-8-orange?style=flat)
+![Concepts](https://img.shields.io/badge/Concepts-13-purple?style=flat)
 ![Stars](https://img.shields.io/badge/Stars-0-yellow?style=flat)
 ![Forks](https://img.shields.io/badge/Forks-0-lightgrey?style=flat)
 ![Issues](https://img.shields.io/badge/Issues-0-green?style=flat)
@@ -27,7 +27,7 @@ DockVerseHub is a comprehensive, well-tested Docker education platform designed 
 
 - **100% Working Code**: Every example has been tested and validated
 - **Progressive Learning**: Clear progression from beginner to advanced topics
-- **Hands-On Labs**: 6 complete, runnable projects with real applications
+- **Hands-On Labs**: 8 complete, runnable projects with real applications
 - **Production Patterns**: Enterprise-ready deployment strategies
 - **Automated Testing**: CI/CD pipeline ensures everything stays working
 - **Comprehensive Docs**: 50+ guides covering theory to practice
@@ -58,7 +58,7 @@ Then visit: `http://localhost:8080`
 
 ## 📚 Repository Structure
 
-### Concepts (10 modules)
+### Concepts (13 modules)
 Core Docker learning organized progressively:
 
 1. **01_getting_started** - Installation, CLI basics, container lifecycle
@@ -71,8 +71,11 @@ Core Docker learning organized progressively:
 8. **08_orchestration** - Docker Swarm, service discovery, clustering
 9. **09_advanced_tricks** - BuildKit, build optimization, debugging techniques
 10. **10_ci_cd_integration** - GitHub Actions, GitLab CI, Jenkins, deployment strategies
+11. **11_kubernetes** - Container orchestration, Kubernetes at scale, deployment patterns
+12. **12_gitops_iac** - GitOps principles, ArgoCD, Flux, Terraform, progressive delivery
+13. **13_observability_monitoring** - Prometheus, Grafana, Jaeger, OpenTelemetry, SLO/SLI
 
-### Labs (6 Projects)
+### Labs (8 Projects)
 Working applications demonstrating real-world patterns:
 
 | Lab | Duration | Level | Topics |
@@ -83,6 +86,8 @@ Working applications demonstrating real-world patterns:
 | Lab 04: Logging Dashboard | 45-60m | Intermediate+ | ELK, Prometheus, Grafana, monitoring |
 | Lab 05: Microservices | 60-90m | Advanced | Service mesh, API gateway, distributed systems |
 | Lab 06: Production Deploy | 90-120m | Advanced | SSL, backup, health checks, security |
+| Lab 07: Kubernetes Deploy | 120-150m | Advanced | Multi-tier K8s app, manifests, deployments |
+| Lab 08: Observability Stack | 240-300m | Advanced | Complete monitoring, tracing, incident response |
 
 ### Documentation
 Comprehensive guides in `docs/`:
@@ -115,6 +120,14 @@ Concepts:    08-10
 Labs:        05, 06
 Time:        80-120 hours
 Skills:      Orchestration, microservices, production deployment
+```
+
+### Expert (12+ months)
+```
+Concepts:    11-13
+Labs:        07, 08
+Time:        100-150 hours
+Skills:      Kubernetes, GitOps, observability, infrastructure as code
 ```
 
 ## 🛠️ Usage Examples
@@ -203,15 +216,16 @@ cd concepts/02_images_layers
 ## 🔍 Project Statistics
 
 ```
-Dockerfiles:        33
-Docker Compose:     19
-Labs:               6 complete
-Concepts:           10 modules
-Documentation:      50+ guides (13,000+ lines)
-Scripts:            38+ utilities
+Dockerfiles:        37
+Docker Compose:     22
+Labs:               8 complete
+Concepts:           13 modules
+Documentation:      40+ guides (18,700+ lines)
+Scripts:            40+ utilities
 Languages:          Python, Go, JavaScript, Shell
 Security:           0 vulnerabilities
 CI/CD Workflows:    7 automated
+GitHub Commits:     60+ (tracked across phases)
 ```
 
 ## 🧪 Verification & Testing
