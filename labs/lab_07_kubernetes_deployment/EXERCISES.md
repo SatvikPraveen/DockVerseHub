@@ -2,7 +2,7 @@
 
 ## Exercise Set: Hands-On Kubernetes
 
-These exercises build on the concepts from Module 11 and the deployed Lab 07 application.
+These exercises build on the concepts from Module 11 and the deployed Lab 07 application. Complete these practical scenarios to master Kubernetes deployment and operations.
 
 ---
 
