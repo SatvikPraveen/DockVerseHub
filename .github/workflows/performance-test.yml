@@ -67,9 +67,9 @@ jobs:
           echo "" >> build-perf-${{ matrix.name }}.md
 
           start_time=$(date +%s)
-          if docker build -t perf-test-${{ matrix.name }}:cold \
-             -f ${{ matrix.dockerfile }} \
-             ${{ matrix.context }}; then
+          if docker build -t "perf-test-${{ matrix.name }}:cold" \
+             -f "${{ matrix.dockerfile }}" \
+             "${{ matrix.context }}"; then
             end_time=$(date +%s)
             cold_build_time=$((end_time - start_time))
             echo "✅ **Cold Build Time:** ${cold_build_time}s" >> build-perf-${{ matrix.name }}.md
@@ -84,9 +84,9 @@ jobs:
 
           # Time the warm build (should be faster due to caching)
           start_time=$(date +%s)
-          docker build -t perf-test-${{ matrix.name }}:warm \
-             -f ${{ matrix.dockerfile }} \
-             ${{ matrix.context }}
+          docker build -t "perf-test-${{ matrix.name }}:warm" \
+             -f "${{ matrix.dockerfile }}" \
+             "${{ matrix.context }}"
           end_time=$(date +%s)
           warm_build_time=$((end_time - start_time))
 
@@ -98,18 +98,18 @@ jobs:
           echo "## Image Analysis" >> build-perf-${{ matrix.name }}.md
 
           # Get image size
-          image_size=$(docker images perf-test-${{ matrix.name }}:cold --format "{{.Size}}")
+          image_size=$(docker images "perf-test-${{ matrix.name }}:cold" --format "{{.Size}}")
           echo "📦 **Image Size:** $image_size" >> build-perf-${{ matrix.name }}.md
 
           # Count layers
-          layer_count=$(docker history perf-test-${{ matrix.name }}:cold --format "{{.CreatedBy}}" | wc -l)
+          layer_count=$(docker history "perf-test-${{ matrix.name }}:cold" --format "{{.CreatedBy}}" | wc -l)
           echo "📋 **Layer Count:** $layer_count" >> build-perf-${{ matrix.name }}.md
 
           # Analyze image with dive if possible
           if command -v dive &> /dev/null; then
             echo "" >> build-perf-${{ matrix.name }}.md
             echo "### Layer Analysis" >> build-perf-${{ matrix.name }}.md
-            dive perf-test-${{ matrix.name }}:cold --ci >> build-perf-${{ matrix.name }}.md || true
+            dive "perf-test-${{ matrix.name }}:cold" --ci >> build-perf-${{ matrix.name }}.md || true
           fi
 
       - name: Performance Thresholds Check
