@@ -1,0 +1,44 @@
+# Prometheus configuration for observability stack
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'observability-demo'
+    environment: 'local'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files:
+  - 'alert_rules.yml'
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Application metrics
+  - job_name: 'application'
+    static_configs:
+      - targets: ['localhost:5000']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  # Node Exporter
+  - job_name: 'node'
+    static_configs:
+      - targets: ['localhost:9100']
+
+  # Jaeger metrics
+  - job_name: 'jaeger'
+    static_configs:
+      - targets: ['localhost:14269']
+
+  # Docker stats (if running in container)
+  - job_name: 'docker'
+    static_configs:
+      - targets: ['localhost:8080']
