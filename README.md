@@ -3,9 +3,9 @@
 <!-- BADGES START -->
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white)
 ![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat&logo=docker&logoColor=white)
-![Dockerfiles](https://img.shields.io/badge/Dockerfiles-36-blue?style=flat)
-![Compose Files](https://img.shields.io/badge/Compose%20Files-21-green?style=flat)
-![Labs](https://img.shields.io/badge/Labs-6-orange?style=flat)
+![Dockerfiles](https://img.shields.io/badge/Dockerfiles-37-blue?style=flat)
+![Compose Files](https://img.shields.io/badge/Compose%20Files-22-green?style=flat)
+![Labs](https://img.shields.io/badge/Labs-7-orange?style=flat)
 ![Concepts](https://img.shields.io/badge/Concepts-12-purple?style=flat)
 ![Stars](https://img.shields.io/badge/Stars-0-yellow?style=flat)
 ![Forks](https://img.shields.io/badge/Forks-0-lightgrey?style=flat)
