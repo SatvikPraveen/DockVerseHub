@@ -1,0 +1,2076 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Comprehensive Docker learning hub with hands-on labs and real-world examples">
+      
+      
+      
+        <link rel="canonical" href="https://dockversehub.github.io/learning-paths/certification-prep/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.0">
+    
+    
+      
+        <title>Docker Certification Preparation Guide - DockVerseHub Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.618322db.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#docker-certification-preparation-guide" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="DockVerseHub Documentation" class="md-header__button md-logo" aria-label="DockVerseHub Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            DockVerseHub Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Docker Certification Preparation Guide
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 6H7c-3.31 0-6 2.69-6 6s2.69 6 6 6h10c3.31 0 6-2.69 6-6s-2.69-6-6-6m0 10H7c-2.21 0-4-1.79-4-4s1.79-4 4-4h10c2.21 0 4 1.79 4 4s-1.79 4-4 4M7 9c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 7H7a5 5 0 0 0-5 5 5 5 0 0 0 5 5h10a5 5 0 0 0 5-5 5 5 0 0 0-5-5m0 8a3 3 0 0 1-3-3 3 3 0 0 1 3-3 3 3 0 0 1 3 3 3 3 0 0 1-3 3"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/dockversehub/DockVerseHub" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    dockversehub/DockVerseHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../index.md" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/installation.md" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../concepts/docker-basics.md" class="md-tabs__link">
+          
+  
+  
+  Core Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../labs/lab-01-simple-app.md" class="md-tabs__link">
+          
+  
+  
+  Hands-on Labs
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../advanced/security.md" class="md-tabs__link">
+          
+  
+  
+  Advanced Topics
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../utilities/scripts.md" class="md-tabs__link">
+          
+  
+  
+  Utilities
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../contributing.md" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Contributing
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../changelog.md" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="DockVerseHub Documentation" class="md-nav__button md-logo" aria-label="DockVerseHub Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    DockVerseHub Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/dockversehub/DockVerseHub" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    dockversehub/DockVerseHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../index.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/first-steps.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First Steps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/basic-commands.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Basic Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Core Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/docker-basics.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker Basics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/images-vs-containers.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Images vs Containers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/networking.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Networking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/volumes-storage.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Volumes & Storage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/docker-compose.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker Compose
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hands-on Labs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Hands-on Labs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../labs/lab-01-simple-app.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lab 1 - Simple App
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../labs/lab-02-multi-container.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lab 2 - Multi-Container
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../labs/lab-03-optimization.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lab 3 - Image Optimization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../labs/lab-04-logging.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lab 4 - Logging Dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../labs/lab-05-microservices.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lab 5 - Microservices
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../labs/lab-06-production.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lab 6 - Production
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Topics
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Advanced Topics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced/security.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced/monitoring.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced/orchestration.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Orchestration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced/ci-cd.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI/CD Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced/performance.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Utilities
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Utilities
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../utilities/scripts.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scripts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../utilities/templates.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Templates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../utilities/tools.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/dockversehub/DockVerseHub/edit/master/docs/learning-paths/certification-prep.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+    
+      
+    
+    <a href="https://github.com/dockversehub/DockVerseHub/raw/master/docs/learning-paths/certification-prep.md" title="View source of this page" class="md-content__button md-icon">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
+    </a>
+  
+
+
+<h1 id="docker-certification-preparation-guide">Docker Certification Preparation Guide</h1>
+<p><strong>Location: <code>docs/learning-paths/certification-prep.md</code></strong></p>
+<h2 id="docker-certified-associate-dca-overview">Docker Certified Associate (DCA) Overview</h2>
+<p>The Docker Certified Associate (DCA) certification validates practical skills in Docker containerization, orchestration, security, and troubleshooting. This guide provides structured preparation for the exam.</p>
+<h3 id="exam-details">Exam Details</h3>
+<ul>
+<li><strong>Duration</strong>: 90 minutes</li>
+<li><strong>Questions</strong>: 55 multiple choice and discrete option multiple choice (DOMC)</li>
+<li><strong>Passing Score</strong>: 65% (36/55 questions)</li>
+<li><strong>Validity</strong>: 3 years</li>
+<li><strong>Format</strong>: Online proctored exam</li>
+<li><strong>Prerequisites</strong>: None, but 6+ months Docker experience recommended</li>
+</ul>
+<h2 id="exam-domains-and-objectives">Exam Domains and Objectives</h2>
+<h3 id="domain-1-orchestration-25-of-exam">Domain 1: Orchestration (25% of exam)</h3>
+<h4 id="11-complete-the-setup-of-a-swarm-mode-cluster">1.1 Complete the setup of a swarm mode cluster</h4>
+<p><strong>Key Topics:</strong></p>
+<ul>
+<li>Initialize a swarm cluster</li>
+<li>Add worker and manager nodes</li>
+<li>Setup swarm cluster with high availability</li>
+<li>Configure swarm cluster encryption</li>
+</ul>
+<p><strong>Study Materials:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Initialize swarm</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>docker<span class="w"> </span>swarm<span class="w"> </span>init<span class="w"> </span>--advertise-addr<span class="w"> </span>&lt;IP&gt;
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># Join as worker</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>docker<span class="w"> </span>swarm<span class="w"> </span>join<span class="w"> </span>--token<span class="w"> </span>&lt;WORKER_TOKEN&gt;<span class="w"> </span>&lt;IP&gt;:2377
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># Join as manager</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>docker<span class="w"> </span>swarm<span class="w"> </span>join<span class="w"> </span>--token<span class="w"> </span>&lt;MANAGER_TOKEN&gt;<span class="w"> </span>&lt;IP&gt;:2377
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="c1"># Get join tokens</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>docker<span class="w"> </span>swarm<span class="w"> </span>join-token<span class="w"> </span>worker
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>docker<span class="w"> </span>swarm<span class="w"> </span>join-token<span class="w"> </span>manager
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="c1"># List nodes</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>docker<span class="w"> </span>node<span class="w"> </span>ls
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="c1"># Promote worker to manager</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>docker<span class="w"> </span>node<span class="w"> </span>promote<span class="w"> </span>&lt;NODE&gt;
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="c1"># Enable swarm encryption</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>docker<span class="w"> </span>network<span class="w"> </span>create<span class="w"> </span>--opt<span class="w"> </span>encrypted<span class="w"> </span>--driver<span class="w"> </span>overlay<span class="w"> </span>secure-net
+</code></pre></div>
+<p><strong>Practice Scenarios:</strong></p>
+<ul>
+<li>Set up 3-manager, 3-worker swarm cluster</li>
+<li>Handle node failures and recovery</li>
+<li>Implement certificate rotation</li>
+<li>Configure external certificate authority</li>
+</ul>
+<h4 id="12-state-the-differences-between-running-a-container-vs-running-a-service">1.2 State the differences between running a container vs running a service</h4>
+<p><strong>Key Topics:</strong></p>
+<ul>
+<li>Container lifecycle vs service lifecycle</li>
+<li>Service replicas and scaling</li>
+<li>Service discovery mechanisms</li>
+<li>Load balancing in services</li>
+</ul>
+<p><strong>Study Materials:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Container vs Service comparison</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>docker<span class="w"> </span>run<span class="w"> </span>nginx<span class="w">                    </span><span class="c1"># Single container</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>docker<span class="w"> </span>service<span class="w"> </span>create<span class="w"> </span>nginx<span class="w">         </span><span class="c1"># Service with replicas</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="c1"># Service benefits</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>docker<span class="w"> </span>service<span class="w"> </span>create<span class="w"> </span>--replicas<span class="w"> </span><span class="m">3</span><span class="w"> </span>--name<span class="w"> </span>web<span class="w"> </span>nginx
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>docker<span class="w"> </span>service<span class="w"> </span>scale<span class="w"> </span><span class="nv">web</span><span class="o">=</span><span class="m">5</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>docker<span class="w"> </span>service<span class="w"> </span>update<span class="w"> </span>--image<span class="w"> </span>nginx:alpine<span class="w"> </span>web
+</code></pre></div>
+<h4 id="13-demonstrate-steps-to-lock-a-swarm-cluster">1.3 Demonstrate steps to lock a swarm cluster</h4>
+<p><strong>Key Topics:</strong></p>
+<ul>
+<li>Swarm autolock feature</li>
+<li>Lock/unlock swarm cluster</li>
+<li>Rotate swarm certificates</li>
+<li>Backup and restore swarm cluster</li>
+</ul>
+<p><strong>Study Materials:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Enable autolock</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>docker<span class="w"> </span>swarm<span class="w"> </span>update<span class="w"> </span>--autolock<span class="o">=</span><span class="nb">true</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1"># Unlock swarm</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>docker<span class="w"> </span>swarm<span class="w"> </span>unlock
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="c1"># Rotate certificates</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>docker<span class="w"> </span>swarm<span class="w"> </span>ca<span class="w"> </span>--rotate
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="c1"># Get unlock key</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>docker<span class="w"> </span>swarm<span class="w"> </span>unlock-key
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="c1"># Backup swarm</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>docker<span class="w"> </span>node<span class="w"> </span>ls<span class="w"> </span>&gt;<span class="w"> </span>swarm-backup.txt
+</code></pre></div>
+<h3 id="domain-2-image-creation-management-and-registry-20-of-exam">Domain 2: Image Creation, Management, and Registry (20% of exam)</h3>
+<h4 id="21-display-the-contents-of-dockerfile">2.1 Display the contents of Dockerfile</h4>
+<p><strong>Key Topics:</strong></p>
+<ul>
+<li>Dockerfile instruction syntax</li>
+<li>Best practices for Dockerfile optimization</li>
+<li>Multi-stage builds</li>
+<li>Build context and .dockerignore</li>
+</ul>
+<p><strong>Study Materials:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c"># Optimized Dockerfile example</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="k">FROM</span><span class="w"> </span><span class="s">node:16-alpine</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="s">builder</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="k">WORKDIR</span><span class="w"> </span><span class="s">/app</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="k">COPY</span><span class="w"> </span>package*.json<span class="w"> </span>./
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="k">RUN</span><span class="w"> </span>npm<span class="w"> </span>ci<span class="w"> </span>--only<span class="o">=</span>production
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="k">FROM</span><span class="w"> </span><span class="s">node:16-alpine</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="s">runtime</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="k">RUN</span><span class="w"> </span>addgroup<span class="w"> </span>-g<span class="w"> </span><span class="m">1001</span><span class="w"> </span>-S<span class="w"> </span>nodejs<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>adduser<span class="w"> </span>-S<span class="w"> </span>nextjs<span class="w"> </span>-u<span class="w"> </span><span class="m">1001</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="k">WORKDIR</span><span class="w"> </span><span class="s">/app</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="k">COPY</span><span class="w"> </span>--from<span class="o">=</span>builder<span class="w"> </span>--chown<span class="o">=</span>nextjs:nodejs<span class="w"> </span>/app/node_modules<span class="w"> </span>./node_modules
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="k">COPY</span><span class="w"> </span>--chown<span class="o">=</span>nextjs:nodejs<span class="w"> </span>.<span class="w"> </span>.
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="k">USER</span><span class="w"> </span><span class="s">nextjs</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="k">EXPOSE</span><span class="w"> </span><span class="s">3000</span>
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="k">CMD</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;npm&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;start&quot;</span><span class="p">]</span>
+</code></pre></div>
+<h4 id="22-describe-options-for-sharing-images">2.2 Describe options for sharing images</h4>
+<p><strong>Key Topics:</strong></p>
+<ul>
+<li>Docker Hub usage</li>
+<li>Private registry setup</li>
+<li>Image naming and tagging</li>
+<li>Registry authentication</li>
+</ul>
+<p><strong>Study Materials:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Image operations</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>docker<span class="w"> </span>tag<span class="w"> </span>myapp:latest<span class="w"> </span>username/myapp:v1.0
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>docker<span class="w"> </span>push<span class="w"> </span>username/myapp:v1.0
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>docker<span class="w"> </span>pull<span class="w"> </span>username/myapp:v1.0
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="c1"># Private registry</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>docker<span class="w"> </span>run<span class="w"> </span>-d<span class="w"> </span>-p<span class="w"> </span><span class="m">5000</span>:5000<span class="w"> </span>--name<span class="w"> </span>registry<span class="w"> </span>registry:2
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>docker<span class="w"> </span>tag<span class="w"> </span>myapp<span class="w"> </span>localhost:5000/myapp
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>docker<span class="w"> </span>push<span class="w"> </span>localhost:5000/myapp
+</code></pre></div>
+<h4 id="23-identify-the-steps-to-perform-image-management">2.3 Identify the steps to perform image management</h4>
+<p><strong>Key Topics:</strong></p>
+<ul>
+<li>Image layers and caching</li>
+<li>Image security scanning</li>
+<li>Image cleanup strategies</li>
+<li>Registry maintenance</li>
+</ul>
+<p><strong>Study Materials:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Image management</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>docker<span class="w"> </span>images
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>docker<span class="w"> </span><span class="nb">history</span><span class="w"> </span>myapp:latest
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>docker<span class="w"> </span>inspect<span class="w"> </span>myapp:latest
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="c1"># Cleanup</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>docker<span class="w"> </span>image<span class="w"> </span>prune
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>docker<span class="w"> </span>image<span class="w"> </span>prune<span class="w"> </span>-a
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>docker<span class="w"> </span>system<span class="w"> </span>prune
+</code></pre></div>
+<h3 id="domain-3-installation-and-configuration-15-of-exam">Domain 3: Installation and Configuration (15% of exam)</h3>
+<h4 id="31-demonstrate-the-ability-to-upgrade-the-docker-engine">3.1 Demonstrate the ability to upgrade the Docker engine</h4>
+<p><strong>Key Topics:</strong></p>
+<ul>
+<li>Docker installation methods</li>
+<li>Docker daemon configuration</li>
+<li>Docker engine upgrade procedures</li>
+<li>Troubleshooting installation issues</li>
+</ul>
+<p><strong>Study Materials:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Update Docker</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>sudo<span class="w"> </span>apt-get<span class="w"> </span>update
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>sudo<span class="w"> </span>apt-get<span class="w"> </span>install<span class="w"> </span>docker-ce<span class="w"> </span>docker-ce-cli<span class="w"> </span>containerd.io
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="c1"># Configure Docker daemon</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>sudo<span class="w"> </span>systemctl<span class="w"> </span><span class="nb">enable</span><span class="w"> </span>docker
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>sudo<span class="w"> </span>systemctl<span class="w"> </span>start<span class="w"> </span>docker
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="c1"># Daemon configuration</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>cat<span class="w"> </span>/etc/docker/daemon.json
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="o">{</span>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="w">  </span><span class="s2">&quot;log-driver&quot;</span>:<span class="w"> </span><span class="s2">&quot;json-file&quot;</span>,
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="w">  </span><span class="s2">&quot;log-opts&quot;</span>:<span class="w"> </span><span class="o">{</span>
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="w">    </span><span class="s2">&quot;max-size&quot;</span>:<span class="w"> </span><span class="s2">&quot;10m&quot;</span>,
+<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a><span class="w">    </span><span class="s2">&quot;max-file&quot;</span>:<span class="w"> </span><span class="s2">&quot;3&quot;</span>
+<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a><span class="w">  </span><span class="o">}</span>
+<a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a><span class="o">}</span>
+</code></pre></div>
+<h4 id="32-complete-setup-of-repo-select-a-storage-driver-and-configure-logging">3.2 Complete setup of repo, select a storage driver, and configure logging</h4>
+<p><strong>Key Topics:</strong></p>
+<ul>
+<li>Docker repository setup</li>
+<li>Storage driver selection</li>
+<li>Logging driver configuration</li>
+<li>Docker daemon optimization</li>
+</ul>
+<p><strong>Study Materials:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="p">{</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">&quot;storage-driver&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;overlay2&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span><span class="nt">&quot;log-driver&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;json-file&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span><span class="nt">&quot;log-opts&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span><span class="nt">&quot;max-size&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;10m&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span><span class="nt">&quot;max-file&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;3&quot;</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">  </span><span class="p">},</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">  </span><span class="nt">&quot;userland-proxy&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">  </span><span class="nt">&quot;live-restore&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="p">}</span>
+</code></pre></div>
+<h3 id="domain-4-networking-15-of-exam">Domain 4: Networking (15% of exam)</h3>
+<h4 id="41-create-a-docker-bridge-network-for-a-developer-to-use-for-containers">4.1 Create a Docker bridge network for a developer to use for containers</h4>
+<p><strong>Key Topics:</strong></p>
+<ul>
+<li>Bridge network creation</li>
+<li>Container network connectivity</li>
+<li>Custom bridge vs default bridge</li>
+<li>Network troubleshooting</li>
+</ul>
+<p><strong>Study Materials:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Network operations</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>docker<span class="w"> </span>network<span class="w"> </span>create<span class="w"> </span>mybridge
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>docker<span class="w"> </span>network<span class="w"> </span>create<span class="w"> </span>--driver<span class="w"> </span>bridge<span class="w"> </span>--subnet<span class="w"> </span><span class="m">192</span>.168.1.0/24<span class="w"> </span>custom-net
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>docker<span class="w"> </span>run<span class="w"> </span>--network<span class="w"> </span>mybridge<span class="w"> </span>nginx
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>docker<span class="w"> </span>network<span class="w"> </span>connect<span class="w"> </span>mybridge<span class="w"> </span>container1
+</code></pre></div>
+<h4 id="42-troubleshoot-container-and-engine-logs-to-understand-connectivity-issues">4.2 Troubleshoot container and engine logs to understand connectivity issues</h4>
+<p><strong>Key Topics:</strong></p>
+<ul>
+<li>Log analysis for network issues</li>
+<li>Network debugging tools</li>
+<li>Container connectivity testing</li>
+<li>Docker daemon network configuration</li>
+</ul>
+<p><strong>Study Materials:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Network troubleshooting</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>docker<span class="w"> </span>logs<span class="w"> </span>container_name
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>container<span class="w"> </span>ping<span class="w"> </span>target
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>container<span class="w"> </span>nslookup<span class="w"> </span>service
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>docker<span class="w"> </span>network<span class="w"> </span>inspect<span class="w"> </span>bridge
+</code></pre></div>
+<h4 id="43-publish-a-port-so-that-an-application-is-accessible-externally">4.3 Publish a port so that an application is accessible externally</h4>
+<p><strong>Key Topics:</strong></p>
+<ul>
+<li>Port mapping options</li>
+<li>Host network vs bridge network</li>
+<li>Load balancing across containers</li>
+<li>Security considerations</li>
+</ul>
+<p><strong>Study Materials:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Port publishing</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span><span class="m">8080</span>:80<span class="w"> </span>nginx
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span><span class="m">127</span>.0.0.1:8080:80<span class="w"> </span>nginx
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>docker<span class="w"> </span>run<span class="w"> </span>--network<span class="w"> </span>host<span class="w"> </span>nginx
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>docker<span class="w"> </span>service<span class="w"> </span>create<span class="w"> </span>--publish<span class="w"> </span><span class="m">80</span>:80<span class="w"> </span>nginx
+</code></pre></div>
+<h3 id="domain-5-security-15-of-exam">Domain 5: Security (15% of exam)</h3>
+<h4 id="51-describe-security-administration-and-tasks">5.1 Describe security administration and tasks</h4>
+<p><strong>Key Topics:</strong></p>
+<ul>
+<li>Docker daemon security</li>
+<li>Image security scanning</li>
+<li>Runtime security practices</li>
+<li>Compliance considerations</li>
+</ul>
+<p><strong>Study Materials:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># Security practices</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>docker<span class="w"> </span>scan<span class="w"> </span>myapp:latest
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>docker<span class="w"> </span>run<span class="w"> </span>--user<span class="w"> </span><span class="m">1000</span>:1000<span class="w"> </span>myapp
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>docker<span class="w"> </span>run<span class="w"> </span>--read-only<span class="w"> </span>--tmpfs<span class="w"> </span>/tmp<span class="w"> </span>myapp
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>docker<span class="w"> </span>run<span class="w"> </span>--cap-drop<span class="w"> </span>ALL<span class="w"> </span>--cap-add<span class="w"> </span>NET_BIND_SERVICE<span class="w"> </span>nginx
+</code></pre></div>
+<h4 id="52-demonstrate-that-an-image-passes-a-security-scan">5.2 Demonstrate that an image passes a security scan</h4>
+<p><strong>Key Topics:</strong></p>
+<ul>
+<li>Vulnerability scanning tools</li>
+<li>Image security best practices</li>
+<li>Security policy enforcement</li>
+<li>Remediation strategies</li>
+</ul>
+<p><strong>Study Materials:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># Security scanning</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>docker<span class="w"> </span>scan<span class="w"> </span>nginx:latest
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>trivy<span class="w"> </span>image<span class="w"> </span>nginx:latest
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>docker<span class="w"> </span>trust<span class="w"> </span>sign<span class="w"> </span>myimage:latest
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>docker<span class="w"> </span>trust<span class="w"> </span>inspect<span class="w"> </span>myimage:latest
+</code></pre></div>
+<h4 id="53-enable-docker-content-trust">5.3 Enable Docker Content Trust</h4>
+<p><strong>Key Topics:</strong></p>
+<ul>
+<li>Content trust configuration</li>
+<li>Image signing and verification</li>
+<li>Notary server setup</li>
+<li>Trust delegation</li>
+</ul>
+<p><strong>Study Materials:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># Content trust</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">DOCKER_CONTENT_TRUST</span><span class="o">=</span><span class="m">1</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>docker<span class="w"> </span>push<span class="w"> </span>myimage:latest
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>docker<span class="w"> </span>pull<span class="w"> </span>myimage:latest
+</code></pre></div>
+<h3 id="domain-6-storage-and-volumes-10-of-exam">Domain 6: Storage and Volumes (10% of exam)</h3>
+<h4 id="61-state-which-graph-driver-should-be-used-on-which-os">6.1 State which graph driver should be used on which OS</h4>
+<p><strong>Key Topics:</strong></p>
+<ul>
+<li>Storage drivers comparison</li>
+<li>OS compatibility matrix</li>
+<li>Performance considerations</li>
+<li>Migration between drivers</li>
+</ul>
+<p><strong>Study Materials:</strong>
+| OS | Recommended Driver | Alternative |
+|----|-------------------|-------------|
+| Ubuntu | overlay2 | aufs |
+| RHEL/CentOS | overlay2 | devicemapper |
+| Windows | windowsfilter | - |</p>
+<h4 id="62-demonstrate-how-to-configure-devicemapper">6.2 Demonstrate how to configure devicemapper</h4>
+<p><strong>Key Topics:</strong></p>
+<ul>
+<li>Devicemapper configuration</li>
+<li>Storage pool setup</li>
+<li>Performance tuning</li>
+<li>Troubleshooting storage issues</li>
+</ul>
+<p><strong>Study Materials:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="p">{</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span><span class="nt">&quot;storage-driver&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;devicemapper&quot;</span><span class="p">,</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">  </span><span class="nt">&quot;storage-opts&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="w">    </span><span class="s2">&quot;dm.thinpooldev=/dev/mapper/docker-thinpool&quot;</span><span class="p">,</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="w">    </span><span class="s2">&quot;dm.use_deferred_removal=true&quot;</span><span class="p">,</span>
+<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="w">    </span><span class="s2">&quot;dm.use_deferred_deletion=true&quot;</span>
+<a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="w">  </span><span class="p">]</span>
+<a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="p">}</span>
+</code></pre></div>
+<h4 id="63-compare-object-storage-to-block-storage">6.3 Compare object storage to block storage</h4>
+<p><strong>Key Topics:</strong></p>
+<ul>
+<li>Storage types comparison</li>
+<li>Use cases for each type</li>
+<li>Performance characteristics</li>
+<li>Docker volume drivers</li>
+</ul>
+<p><strong>Study Materials:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># Volume operations</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>docker<span class="w"> </span>volume<span class="w"> </span>create<span class="w"> </span>myvolume
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>docker<span class="w"> </span>volume<span class="w"> </span>create<span class="w"> </span>--driver<span class="w"> </span><span class="nb">local</span><span class="w"> </span>--opt<span class="w"> </span><span class="nv">type</span><span class="o">=</span>nfs<span class="w"> </span>myvolume
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>docker<span class="w"> </span>run<span class="w"> </span>-v<span class="w"> </span>myvolume:/data<span class="w"> </span>nginx
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>docker<span class="w"> </span>volume<span class="w"> </span>ls
+<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>docker<span class="w"> </span>volume<span class="w"> </span>inspect<span class="w"> </span>myvolume
+</code></pre></div>
+<h2 id="study-plan-8-12-weeks">Study Plan (8-12 Weeks)</h2>
+<h3 id="weeks-1-2-foundation-review">Weeks 1-2: Foundation Review</h3>
+<ul>
+<li>Review Docker basics and commands</li>
+<li>Practice container lifecycle management</li>
+<li>Study Dockerfile best practices</li>
+<li>Set up practice environment</li>
+</ul>
+<h3 id="weeks-3-4-orchestration-focus">Weeks 3-4: Orchestration Focus</h3>
+<ul>
+<li>Master Docker Swarm setup and management</li>
+<li>Practice service creation and scaling</li>
+<li>Learn cluster security and backup</li>
+<li>Implement high availability patterns</li>
+</ul>
+<h3 id="weeks-5-6-images-and-registry">Weeks 5-6: Images and Registry</h3>
+<ul>
+<li>Advanced image building techniques</li>
+<li>Registry setup and management</li>
+<li>Image security and scanning</li>
+<li>Content trust implementation</li>
+</ul>
+<h3 id="weeks-7-8-networking-and-storage">Weeks 7-8: Networking and Storage</h3>
+<ul>
+<li>Network troubleshooting skills</li>
+<li>Storage driver configuration</li>
+<li>Volume management practices</li>
+<li>Performance optimization</li>
+</ul>
+<h3 id="weeks-9-10-security-deep-dive">Weeks 9-10: Security Deep Dive</h3>
+<ul>
+<li>Security scanning and remediation</li>
+<li>Runtime security hardening</li>
+<li>Compliance frameworks</li>
+<li>Incident response procedures</li>
+</ul>
+<h3 id="weeks-11-12-practice-and-review">Weeks 11-12: Practice and Review</h3>
+<ul>
+<li>Full-length practice exams</li>
+<li>Hands-on lab scenarios</li>
+<li>Weak area remediation</li>
+<li>Final review and exam scheduling</li>
+</ul>
+<h2 id="hands-on-lab-scenarios">Hands-on Lab Scenarios</h2>
+<h3 id="lab-1-swarm-cluster-setup">Lab 1: Swarm Cluster Setup</h3>
+<p><strong>Objective:</strong> Set up a 5-node swarm cluster with HA configuration</p>
+<p><strong>Tasks:</strong></p>
+<ol>
+<li>Initialize swarm with 3 managers</li>
+<li>Add 2 worker nodes</li>
+<li>Configure cluster encryption</li>
+<li>Implement node constraints</li>
+<li>Test failover scenarios</li>
+</ol>
+<h3 id="lab-2-multi-service-application">Lab 2: Multi-Service Application</h3>
+<p><strong>Objective:</strong> Deploy complex application with multiple services</p>
+<p><strong>Tasks:</strong></p>
+<ol>
+<li>Create overlay network</li>
+<li>Deploy database with persistent storage</li>
+<li>Deploy API service with secrets</li>
+<li>Deploy frontend with load balancing</li>
+<li>Implement rolling updates</li>
+</ol>
+<h3 id="lab-3-security-hardening">Lab 3: Security Hardening</h3>
+<p><strong>Objective:</strong> Implement comprehensive security measures</p>
+<p><strong>Tasks:</strong></p>
+<ol>
+<li>Enable content trust</li>
+<li>Configure user namespaces</li>
+<li>Implement network policies</li>
+<li>Set up vulnerability scanning</li>
+<li>Create security compliance report</li>
+</ol>
+<h3 id="lab-4-troubleshooting-scenario">Lab 4: Troubleshooting Scenario</h3>
+<p><strong>Objective:</strong> Diagnose and fix common issues</p>
+<p><strong>Tasks:</strong></p>
+<ol>
+<li>Fix networking connectivity issues</li>
+<li>Resolve storage mounting problems</li>
+<li>Debug service discovery failures</li>
+<li>Fix performance bottlenecks</li>
+<li>Recover from node failures</li>
+</ol>
+<h2 id="practice-exam-questions">Practice Exam Questions</h2>
+<h3 id="sample-questions">Sample Questions</h3>
+<p><strong>Question 1:</strong> Which command enables Docker Content Trust globally?
+A. <code>docker trust enable</code>
+B. <code>export DOCKER_CONTENT_TRUST=1</code>
+C. <code>docker config set trust=true</code>
+D. <code>docker daemon --enable-trust</code></p>
+<p><strong>Answer:</strong> B</p>
+<p><strong>Question 2:</strong> What is the default network driver for Docker Swarm overlay networks?
+A. bridge
+B. overlay
+C. macvlan
+D. host</p>
+<p><strong>Answer:</strong> B</p>
+<p><strong>Question 3:</strong> Which storage driver is recommended for production use on Ubuntu?
+A. aufs
+B. overlay
+C. overlay2
+D. devicemapper</p>
+<p><strong>Answer:</strong> C</p>
+<h3 id="practice-resources">Practice Resources</h3>
+<p><strong>Official Resources:</strong></p>
+<ul>
+<li>Docker Documentation (docs.docker.com)</li>
+<li>Docker Certification Study Guide</li>
+<li>Docker Desktop and Docker Hub</li>
+<li>Play with Docker (training.play-with-docker.com)</li>
+</ul>
+<p><strong>Third-Party Resources:</strong></p>
+<ul>
+<li>A Cloud Guru Docker Certification Course</li>
+<li>Linux Academy Docker Deep Dive</li>
+<li>Udemy Docker Certification Prep</li>
+<li>Whizlabs Docker Practice Tests</li>
+</ul>
+<p><strong>Books:</strong></p>
+<ul>
+<li>"Docker Deep Dive" by Nigel Poulton</li>
+<li>"Docker Certified Associate Study Guide" by Brett Fisher</li>
+<li>"Docker in Action" by Jeff Nickoloff</li>
+</ul>
+<h2 id="exam-day-strategy">Exam Day Strategy</h2>
+<h3 id="before-the-exam">Before the Exam</h3>
+<ul>
+<li>Review key commands and syntax</li>
+<li>Practice time management</li>
+<li>Set up comfortable testing environment</li>
+<li>Verify technical requirements</li>
+</ul>
+<h3 id="during-the-exam">During the Exam</h3>
+<ul>
+<li>Read questions carefully</li>
+<li>Eliminate obviously wrong answers</li>
+<li>Use process of elimination</li>
+<li>Flag uncertain questions for review</li>
+<li>Manage time effectively (1.6 minutes per question)</li>
+</ul>
+<h3 id="common-pitfalls-to-avoid">Common Pitfalls to Avoid</h3>
+<ul>
+<li>Confusing Docker commands syntax</li>
+<li>Mixing up network driver capabilities</li>
+<li>Misunderstanding service vs container concepts</li>
+<li>Forgetting security best practices</li>
+<li>Time management issues</li>
+</ul>
+<h2 id="post-certification">Post-Certification</h2>
+<h3 id="maintaining-certification">Maintaining Certification</h3>
+<ul>
+<li>Stay current with Docker updates</li>
+<li>Continue hands-on practice</li>
+<li>Engage with Docker community</li>
+<li>Consider advanced certifications</li>
+</ul>
+<h3 id="career-benefits">Career Benefits</h3>
+<ul>
+<li>Validates Docker expertise</li>
+<li>Increases job opportunities</li>
+<li>Higher salary potential</li>
+<li>Professional credibility</li>
+<li>Foundation for cloud certifications</li>
+</ul>
+<h3 id="next-steps">Next Steps</h3>
+<ul>
+<li>Kubernetes certifications (CKA, CKAD, CKS)</li>
+<li>Cloud provider certifications (AWS, Azure, GCP)</li>
+<li>Advanced specialization areas</li>
+<li>Community contribution and leadership</li>
+</ul>
+<h2 id="additional-resources">Additional Resources</h2>
+<h3 id="command-reference-card">Command Reference Card</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1"># Essential DCA commands</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>docker<span class="w"> </span>swarm<span class="w"> </span>init<span class="w"> </span>--advertise-addr<span class="w"> </span>&lt;IP&gt;
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>docker<span class="w"> </span>service<span class="w"> </span>create<span class="w"> </span>--replicas<span class="w"> </span><span class="m">3</span><span class="w"> </span>--name<span class="w"> </span>web<span class="w"> </span>nginx
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>docker<span class="w"> </span>network<span class="w"> </span>create<span class="w"> </span>--driver<span class="w"> </span>overlay<span class="w"> </span>--encrypted<span class="w"> </span>secure-net
+<a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>db_password<span class="w"> </span>-
+<a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a>docker<span class="w"> </span>config<span class="w"> </span>create<span class="w"> </span>nginx_config<span class="w"> </span>nginx.conf
+<a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a>docker<span class="w"> </span>node<span class="w"> </span>update<span class="w"> </span>--availability<span class="w"> </span>drain<span class="w"> </span>&lt;NODE&gt;
+<a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a>docker<span class="w"> </span>service<span class="w"> </span>update<span class="w"> </span>--image<span class="w"> </span>nginx:alpine<span class="w"> </span>web
+<a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a>docker<span class="w"> </span>service<span class="w"> </span>rollback<span class="w"> </span>web
+<a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a>docker<span class="w"> </span>trust<span class="w"> </span>sign<span class="w"> </span>image:tag
+<a id="__codelineno-16-11" name="__codelineno-16-11" href="#__codelineno-16-11"></a><span class="nb">export</span><span class="w"> </span><span class="nv">DOCKER_CONTENT_TRUST</span><span class="o">=</span><span class="m">1</span>
+</code></pre></div>
+<h3 id="troubleshooting-checklist">Troubleshooting Checklist</h3>
+<ul>
+<li>[ ] Check Docker daemon status</li>
+<li>[ ] Verify network connectivity</li>
+<li>[ ] Inspect container/service logs</li>
+<li>[ ] Check resource constraints</li>
+<li>[ ] Validate configurations</li>
+<li>[ ] Test with minimal examples</li>
+<li>[ ] Review documentation</li>
+</ul>
+<p>The DCA certification demonstrates practical Docker skills valued by employers. Consistent hands-on practice with real-world scenarios is key to passing the exam and building expertise.</p>
+
+
+
+
+
+
+
+  
+    
+  
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 1, 2025 12:35:10 UTC">September 1, 2025</span>
+  </span>
+
+    
+    
+    
+    
+  </aside>
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.tracking", "search.highlight", "search.share", "toc.integrate", "content.code.copy", "content.action.edit", "content.action.view"], "search": "../../assets/javascripts/workers/search.7a47a382.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.e71a0d61.min.js"></script>
+      
+    
+  </body>
+</html>
