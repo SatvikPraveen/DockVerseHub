@@ -10,7 +10,7 @@ services:
         VARIANT: bullseye
 
     volumes:
-      - ../..:/workspaces:cached
+      - ../..:/workspace:cached
       - /var/run/docker.sock:/var/run/docker.sock
       - devcontainer-vscode-extensions:/home/vscode/.vscode-server/extensions
       - devcontainer-vscode-insiders-extensions:/home/vscode/.vscode-server-insiders/extensions
@@ -24,7 +24,7 @@ services:
       - DOCKER_BUILDKIT=1
       - COMPOSE_DOCKER_CLI_BUILD=1
       - NODE_ENV=development
-      - PYTHONPATH=/workspaces/DockVerseHub
+      - PYTHONPATH=/workspace
       - GIT_EDITOR=code --wait
 
     network_mode: "host"
