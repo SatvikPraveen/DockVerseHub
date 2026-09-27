@@ -2,7 +2,10 @@
 
 **Location:** `research/results/FINDINGS.md`
 **Host:** macOS 26.6 on Apple Silicon (arm64), Docker Engine 29.7.2 in the Docker Desktop Linux VM
-**Harness commit:** `980e53b` (clean tree), recorded in every run's `environment.json`
+**Harness commit:** `980e53b` (clean tree), recorded in every run's `environment.json`.
+The experiment definitions and fixtures used were on disk but, because of a `.gitignore` rule, were first
+committed in `cf5b81a`, unchanged. Between the two commits only the report renderer changed, not the
+measurement code, and the reports here were regenerated with it from the original `raw.jsonl`.
 **Design:** 5 recorded repetitions for build experiments and 7 for cache probes, 1 warm-up round, block-randomised order, seed 42
 
 This page interprets the four committed runs against the hypotheses written **before** the data were collected. Hypotheses were not edited afterwards. The full statistics are in each run's `report.md`. Absolute numbers are specific to this host. The ratios between variants are the part that should transfer.
@@ -68,7 +71,7 @@ The mean fell by 14%, with a medium effect: d = −0.67 and Cliff's δ = −0.71
 ## Reproduce
 
 ```bash
-git checkout 980e53b
+git checkout cf5b81a            # first commit containing harness + experiment fixtures
 python -m research.harness run            # ~10 minutes on the host above
 python -m research.harness index
 ```
