@@ -186,3 +186,29 @@ def test_syntax_directive_is_first_line(dockerfile: Path):
     assert not idx or idx == [
         0
     ], f"{dockerfile.relative_to(ROOT)}: '# syntax=' on line {idx[0] + 1}; it is ignored unless it is line 1"
+
+
+def test_research_sources_are_not_gitignored():
+    """Everything under research/ except caches must be committable.
+
+    A generic 'experiments/' ignore rule once hid every experiment
+    definition and fixture: tests passed locally and failed on CI.
+    """
+    import shutil
+    import subprocess
+
+    if not shutil.which("git") or not (ROOT / ".git").exists():
+        pytest.skip("not a git checkout")
+    candidates = [
+        str(p.relative_to(ROOT))
+        for p in (ROOT / "research").rglob("*")
+        if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc"
+    ]
+    proc = subprocess.run(
+        ["git", "-C", str(ROOT), "check-ignore", "--stdin"],
+        input="\n".join(candidates),
+        capture_output=True,
+        text=True,
+    )
+    ignored = [line for line in proc.stdout.splitlines() if line.strip()]
+    assert not ignored, f"gitignored research files: {ignored[:10]}"

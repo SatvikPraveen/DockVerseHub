@@ -510,7 +510,9 @@ inventory/host_vars/*/vault.yml
 local/
 playground/
 sandbox/
-experiments/
+# anchored to the root: an unanchored 'experiments/' also swallowed
+# research/experiments/, the committed benchmark definitions
+/experiments/
 scratchpad/
 
 # Performance and Profiling

@@ -1,0 +1,17 @@
+{
+  "id": "exp01_base_image_footprint",
+  "title": "Base image choice: footprint, cold build time and cold start",
+  "hypothesis": "For an identical pure-Python Flask workload, slim, Alpine and distroless bases reduce image size by more than 70% relative to the full Debian image, and reduce cold-start latency measurably; Alpine's musl libc does not change cold start for a pure-Python app.",
+  "procedure": "build",
+  "baseline": "full",
+  "design": {"repetitions": 5, "warmup": 1, "seed": 42, "prune_between_trials": false},
+  "readiness": {"port": 5000, "path": "/health", "timeout": 60},
+  "tags": ["images", "startup", "ci-smoke"],
+  "variants": [
+    {"name": "full", "dockerfile": "fixtures/base-images/Dockerfile.full", "context": "fixtures/app", "description": "python:3.12 (Debian bookworm, full toolchain)"},
+    {"name": "slim", "dockerfile": "fixtures/base-images/Dockerfile.slim", "context": "fixtures/app", "description": "python:3.12-slim"},
+    {"name": "alpine", "dockerfile": "fixtures/base-images/Dockerfile.alpine", "context": "fixtures/app", "description": "python:3.12-alpine (musl)"},
+    {"name": "distroless", "dockerfile": "fixtures/base-images/Dockerfile.distroless", "context": "fixtures/app", "description": "gcr.io/distroless/python3-debian12:nonroot, deps via --target"}
+  ],
+  "notes": "Cold build uses --no-cache but base layers may already be present locally after warm-up; this is intentional and mirrors a developer machine. Set design.prune_between_trials=true for a fully cold builder cache."
+}

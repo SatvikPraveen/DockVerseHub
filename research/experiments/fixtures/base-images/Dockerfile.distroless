@@ -1,0 +1,15 @@
+# Variant: Google distroless python3 (no shell, no package manager).
+# Dependencies are installed with --target in a builder stage and copied in;
+# the runtime image ships Python 3.11, which is fine for these pure-Python deps.
+FROM python:3.11-slim AS builder
+WORKDIR /build
+COPY requirements.txt .
+RUN pip install --no-cache-dir --target /deps -r requirements.txt
+
+FROM gcr.io/distroless/python3-debian12:nonroot
+WORKDIR /app
+COPY --from=builder /deps /deps
+COPY app.py .
+ENV PYTHONPATH=/deps
+EXPOSE 5000
+CMD ["/app/app.py"]

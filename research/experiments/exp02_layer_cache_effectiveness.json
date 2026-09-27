@@ -1,0 +1,15 @@
+{
+  "id": "exp02_layer_cache_effectiveness",
+  "title": "Layer ordering and cache effectiveness on source-only changes",
+  "hypothesis": "Copying and installing dependencies before application source lets a source-only edit rebuild in well under a second of layer work, whereas copying the whole context first invalidates the dependency layer and makes every edit pay the full pip install cost. Expected effect size: large (d > 0.8), rebuild time ratio > 5x.",
+  "procedure": "cache_probe",
+  "baseline": "source-first",
+  "design": {"repetitions": 7, "warmup": 1, "seed": 42},
+  "cache_probe": {"mutate_file": "app.py"},
+  "tags": ["build-cache", "ci-smoke"],
+  "variants": [
+    {"name": "source-first", "dockerfile": "fixtures/layer-cache/Dockerfile.source-first", "context": "fixtures/app", "description": "COPY . . before pip install (anti-pattern)"},
+    {"name": "deps-first", "dockerfile": "fixtures/layer-cache/Dockerfile.deps-first", "context": "fixtures/app", "description": "COPY requirements.txt + pip install before COPY . ."}
+  ],
+  "notes": "Each trial copies the fixture context to a scratch directory, warms the cache with one build, appends a comment to app.py, then times the rebuild."
+}

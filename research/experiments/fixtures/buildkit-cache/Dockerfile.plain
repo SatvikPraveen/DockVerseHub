@@ -1,0 +1,8 @@
+# Variant: conventional pip install. When requirements.txt changes the layer
+# is rebuilt and every wheel is downloaded again.
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY app.py .
+CMD ["python", "app.py"]

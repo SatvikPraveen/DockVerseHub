@@ -1,0 +1,15 @@
+{
+  "id": "exp04_buildkit_cache_mount",
+  "title": "BuildKit cache mounts for package-manager downloads",
+  "hypothesis": "When requirements.txt changes, a RUN --mount=type=cache on pip's cache directory cuts the rebuild time versus a plain RUN pip install because wheels are served from the persistent cache instead of PyPI. The gain scales with dependency download size and network latency, so it is smaller on a fast connection.",
+  "procedure": "cache_probe",
+  "baseline": "plain",
+  "design": {"repetitions": 7, "warmup": 1, "seed": 42},
+  "cache_probe": {"mutate_file": "requirements.txt"},
+  "tags": ["build-cache"],
+  "variants": [
+    {"name": "plain", "dockerfile": "fixtures/buildkit-cache/Dockerfile.plain", "context": "fixtures/app", "description": "RUN pip install -r requirements.txt"},
+    {"name": "cache-mount", "dockerfile": "fixtures/buildkit-cache/Dockerfile.cache-mount", "context": "fixtures/app", "description": "RUN --mount=type=cache,target=/root/.cache/pip pip install ..."}
+  ],
+  "notes": "Mutating requirements.txt (appending a comment) invalidates the pip layer in both variants; the cache mount persists across builds via BuildKit, independent of layer cache."
+}

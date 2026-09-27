@@ -1,0 +1,10 @@
+# syntax=docker/dockerfile:1
+# Variant: BuildKit cache mount on pip's download cache. The layer is still
+# rebuilt when requirements.txt changes, but wheels are served from the
+# persistent cache instead of the network.
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements.txt
+COPY app.py .
+CMD ["python", "app.py"]
