@@ -32,26 +32,21 @@ jobs:
         run: |
           echo "Running Hadolint on $(cat dockerfiles.txt | wc -l) Dockerfiles..."
 
-          # Create hadolint config
-          cat > .hadolint.yaml << 'EOF'
-          ignored:
-            - DL3008  # Pin versions in apt get install
-            - DL3009  # Delete the apt-get lists after installing
-            - DL3015  # Avoid additional packages by specifying --no-install-recommends
-            - DL3018  # Pin versions in apk add
-            - DL3027  # Do not use apt as it is meant to be an end-user tool
-            - SC2086  # Double quote to prevent globbing and word splitting
-
-          failure-threshold: warning
-
-          format: json
-          EOF
-
-          # Run hadolint on each file
+          # Policy lives in the committed .hadolint.yaml (single source of truth).
+          # The previous step fed the Dockerfile and the config to stdin at the
+          # same time; the shell kept only the last redirect, so hadolint linted
+          # the config file instead of any Dockerfile.
           exit_code=0
           while IFS= read -r dockerfile; do
             echo "🔍 Linting: $dockerfile"
-            if docker run --rm -i hadolint/hadolint:latest hadolint --config /dev/stdin - < "$dockerfile" < .hadolint.yaml; then
+            # hadolint 2.12 cannot parse BuildKit RUN heredocs (valid since
+            # dockerfile frontend 1.4); report and skip instead of failing.
+            if grep -qE '^RUN .*<<-?[[:space:]]*["'"'"']?[A-Za-z_]+' "$dockerfile"; then
+              echo "::notice file=$dockerfile::skipped by hadolint (uses RUN heredoc)"
+              continue
+            fi
+            if docker run --rm -v "$PWD:/repo:ro" -w /repo hadolint/hadolint:v2.12.0 \
+                 hadolint --config /repo/.hadolint.yaml "$dockerfile"; then
               echo "✅ $dockerfile passed"
             else
               echo "❌ $dockerfile failed"

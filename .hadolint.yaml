@@ -7,6 +7,10 @@ ignored:
   - DL3008   # pin apt versions: examples track distro security updates instead
   - DL3013   # pin pip versions: labs pin in requirements.txt, not in RUN
   - DL3018   # pin apk versions: same reasoning as DL3008
+  - DL3009   # apt lists cleanup: several teaching Dockerfiles show it as a separate step
+  - DL3015   # --no-install-recommends: demonstrated explicitly in lab_03 comparisons
+  - DL3027   # apt vs apt-get: kept where the lesson is about the difference
+  - SC2086   # word splitting in RUN: shell idioms kept readable for learners
 override:
   warning:
     - DL3007   # :latest tag (used deliberately in some teaching examples)
@@ -17,3 +21,4 @@ trustedRegistries:
   - ghcr.io
   - quay.io
   - mcr.microsoft.com
+  - docker.elastic.co

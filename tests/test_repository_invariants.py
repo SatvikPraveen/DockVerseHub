@@ -112,6 +112,21 @@ def test_healthcheck_tool_is_present_in_minimal_images(dockerfile: Path):
         )
 
 
+RUN_HEREDOC = re.compile(r"^RUN\s.*<<-?\s*[\"']?[A-Za-z_]+", re.M)
+
+
+@pytest.mark.parametrize(
+    "dockerfile", _files("Dockerfile*"), ids=lambda p: str(p.relative_to(ROOT))
+)
+def test_heredoc_dockerfiles_declare_syntax(dockerfile: Path):
+    """RUN heredocs need dockerfile frontend >= 1.4; pin it so older builders fail loudly."""
+    text = dockerfile.read_text(encoding="utf-8", errors="replace")
+    if RUN_HEREDOC.search(text):
+        assert text.lstrip().startswith(
+            "# syntax="
+        ), f"{dockerfile.relative_to(ROOT)} uses RUN heredocs but has no '# syntax=' directive"
+
+
 @pytest.mark.parametrize(
     "dockerfile", _files("Dockerfile*"), ids=lambda p: str(p.relative_to(ROOT))
 )
@@ -159,3 +174,15 @@ _TolerantLoader.add_multi_constructor("!", lambda loader, suffix, node: None)
 def test_yaml_parses(path: Path):
     with path.open(encoding="utf-8") as fh:
         list(yaml.load_all(fh, Loader=_TolerantLoader))
+
+
+@pytest.mark.parametrize(
+    "dockerfile", _files("Dockerfile*"), ids=lambda p: str(p.relative_to(ROOT))
+)
+def test_syntax_directive_is_first_line(dockerfile: Path):
+    """BuildKit only honours parser directives before any other line (comments included)."""
+    lines = dockerfile.read_text(encoding="utf-8", errors="replace").splitlines()
+    idx = [i for i, line in enumerate(lines) if re.match(r"#\s*syntax\s*=", line)]
+    assert not idx or idx == [
+        0
+    ], f"{dockerfile.relative_to(ROOT)}: '# syntax=' on line {idx[0] + 1}; it is ignored unless it is line 1"
