@@ -1,0 +1,40 @@
+{
+  "id": "exp03_multistage_vs_single",
+  "title": "Multi-stage builds: runtime image size versus build cost",
+  "hypothesis": "A multi-stage build that discards the compiler toolchain produces a runtime image that is hundreds of MB smaller than the single-stage equivalent, at the cost of a small increase in cold build time due to the extra stage and wheel packaging step.",
+  "procedure": "build",
+  "baseline": "single-stage",
+  "variants": [
+    {
+      "name": "single-stage",
+      "dockerfile": "fixtures/multistage/Dockerfile.single",
+      "context": "fixtures/app",
+      "build_args": {},
+      "description": "slim + build-essential kept in final image"
+    },
+    {
+      "name": "multi-stage",
+      "dockerfile": "fixtures/multistage/Dockerfile.multi",
+      "context": "fixtures/app",
+      "build_args": {},
+      "description": "builder stage compiles wheels; runtime is plain slim"
+    }
+  ],
+  "design": {
+    "repetitions": 5,
+    "warmup": 1,
+    "seed": 42,
+    "order": "block-randomised"
+  },
+  "readiness": {
+    "port": 5000,
+    "path": "/health",
+    "timeout": 60
+  },
+  "cache_probe": null,
+  "tags": [
+    "images",
+    "build-cache"
+  ],
+  "notes": ""
+}

@@ -1,0 +1,341 @@
+{
+  "experiment": {
+    "id": "exp03_multistage_vs_single",
+    "title": "Multi-stage builds: runtime image size versus build cost",
+    "hypothesis": "A multi-stage build that discards the compiler toolchain produces a runtime image that is hundreds of MB smaller than the single-stage equivalent, at the cost of a small increase in cold build time due to the extra stage and wheel packaging step.",
+    "procedure": "build",
+    "baseline": "single-stage",
+    "variants": [
+      {
+        "name": "single-stage",
+        "dockerfile": "fixtures/multistage/Dockerfile.single",
+        "context": "fixtures/app",
+        "build_args": {},
+        "description": "slim + build-essential kept in final image"
+      },
+      {
+        "name": "multi-stage",
+        "dockerfile": "fixtures/multistage/Dockerfile.multi",
+        "context": "fixtures/app",
+        "build_args": {},
+        "description": "builder stage compiles wheels; runtime is plain slim"
+      }
+    ],
+    "design": {
+      "repetitions": 5,
+      "warmup": 1,
+      "seed": 42,
+      "order": "block-randomised"
+    },
+    "readiness": {
+      "port": 5000,
+      "path": "/health",
+      "timeout": 60
+    },
+    "cache_probe": null,
+    "tags": [
+      "images",
+      "build-cache"
+    ],
+    "notes": ""
+  },
+  "environment": {
+    "captured_at": "2026-09-27T05:41:36.969278+00:00",
+    "host": {
+      "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+      "machine": "arm64",
+      "processor": "arm",
+      "python": "3.13.13",
+      "cpu_count": 10
+    },
+    "docker": {
+      "client_version": "29.7.2",
+      "buildx_version": "github.com/docker/buildx v0.36.1-desktop.1 83d819cf8237b52ef45a2a9857eeb83a7b10977f",
+      "compose_version": "5.4.0",
+      "buildkit_enabled": true,
+      "binary": "/usr/local/bin/docker",
+      "ServerVersion": "29.7.2",
+      "Driver": "overlayfs",
+      "CgroupDriver": "cgroupfs",
+      "CgroupVersion": "2",
+      "KernelVersion": "7.0.12-linuxkit",
+      "OperatingSystem": "Docker Desktop",
+      "OSType": "linux",
+      "Architecture": "aarch64",
+      "NCPU": 10,
+      "MemTotal": 8319504384,
+      "DefaultRuntime": "runc"
+    },
+    "git": {
+      "commit": "980e53bad79df5bbc39873e002c3662b12d56846",
+      "dirty": false
+    },
+    "env": {}
+  },
+  "run_dir": "research/results/exp03_multistage_vs_single/20260927T054136Z",
+  "trials_recorded": 10,
+  "trials_failed": 0,
+  "failures": [],
+  "metrics": {
+    "build_time_s": {
+      "variants": {
+        "single-stage": {
+          "n": 5,
+          "mean": 20.0372334334068,
+          "median": 20.62425258406438,
+          "stdev": 1.1913141801501288,
+          "minimum": 18.40415854100138,
+          "maximum": 21.158751167124137,
+          "cv": 0.059455023275015936,
+          "ci95_low": 18.558021505372256,
+          "ci95_high": 21.516445361441345,
+          "bootstrap_ci95": [
+            19.106530599622054,
+            20.92338245040737
+          ],
+          "deterministic": false,
+          "values": [
+            19.161426207982004,
+            21.158751167124137,
+            18.40415854100138,
+            20.62425258406438,
+            20.8375786668621
+          ]
+        },
+        "multi-stage": {
+          "n": 5,
+          "mean": 14.508086733380333,
+          "median": 14.300485542044044,
+          "stdev": 0.36436267992546223,
+          "minimum": 14.187069917097688,
+          "maximum": 15.04941412480548,
+          "cv": 0.02511445420898494,
+          "ci95_low": 14.055670711430139,
+          "ci95_high": 14.960502755330527,
+          "bootstrap_ci95": [
+            14.249932658486069,
+            14.830341291474179
+          ],
+          "deterministic": false,
+          "values": [
+            14.71594512485899,
+            14.287518958095461,
+            14.187069917097688,
+            14.300485542044044,
+            15.04941412480548
+          ]
+        }
+      },
+      "comparisons": {
+        "multi-stage": {
+          "baseline_mean": 20.0372334334068,
+          "treatment_mean": 14.508086733380333,
+          "delta": -5.529146700026468,
+          "delta_pct": -27.594361858399445,
+          "cohens_d": -6.276661415646193,
+          "cliffs_delta": -1.0,
+          "welch_t": -9.924273087569395,
+          "welch_df": 4.741859050302411,
+          "welch_p": 0.0002378939433178573,
+          "permutation_p": 0.007936507936507936,
+          "deterministic": false
+        }
+      }
+    },
+    "image_size_mb": {
+      "variants": {
+        "single-stage": {
+          "n": 5,
+          "mean": 147.164288,
+          "median": 147.164344,
+          "stdev": 0.00025538696129367115,
+          "minimum": 147.163848,
+          "maximum": 147.164505,
+          "cv": 1.735386789583565e-06,
+          "ci95_low": 147.16397089520456,
+          "ci95_high": 147.16460510479544,
+          "bootstrap_ci95": [
+            147.1640574,
+            147.1644382
+          ],
+          "deterministic": true,
+          "values": [
+            147.164505,
+            147.164411,
+            147.164332,
+            147.163848,
+            147.164344
+          ]
+        },
+        "multi-stage": {
+          "n": 5,
+          "mean": 49.038527,
+          "median": 49.038503,
+          "stdev": 5.050742519800706e-05,
+          "minimum": 49.038484,
+          "maximum": 49.038604,
+          "cv": 1.0299539624835603e-06,
+          "ci95_low": 49.03846428674849,
+          "ci95_high": 49.03858971325151,
+          "bootstrap_ci95": [
+            49.038491,
+            49.0385696
+          ],
+          "deterministic": true,
+          "values": [
+            49.038503,
+            49.038552,
+            49.038604,
+            49.038492,
+            49.038484
+          ]
+        }
+      },
+      "comparisons": {
+        "multi-stage": {
+          "baseline_mean": 147.164288,
+          "treatment_mean": 49.038527,
+          "delta": -98.125761,
+          "delta_pct": -66.6776990080637,
+          "cohens_d": -533050.1606219687,
+          "cliffs_delta": -1.0,
+          "welch_t": -842826.3073420088,
+          "welch_df": 4.3124202253608495,
+          "welch_p": 0.0,
+          "permutation_p": 0.007936507936507936,
+          "deterministic": true
+        }
+      }
+    },
+    "layer_count": {
+      "variants": {
+        "single-stage": {
+          "n": 5,
+          "mean": 9.0,
+          "median": 9.0,
+          "stdev": 0.0,
+          "minimum": 9.0,
+          "maximum": 9.0,
+          "cv": 0.0,
+          "ci95_low": 9.0,
+          "ci95_high": 9.0,
+          "bootstrap_ci95": [
+            9.0,
+            9.0
+          ],
+          "deterministic": true,
+          "values": [
+            9.0,
+            9.0,
+            9.0,
+            9.0,
+            9.0
+          ]
+        },
+        "multi-stage": {
+          "n": 5,
+          "mean": 8.0,
+          "median": 8.0,
+          "stdev": 0.0,
+          "minimum": 8.0,
+          "maximum": 8.0,
+          "cv": 0.0,
+          "ci95_low": 8.0,
+          "ci95_high": 8.0,
+          "bootstrap_ci95": [
+            8.0,
+            8.0
+          ],
+          "deterministic": true,
+          "values": [
+            8.0,
+            8.0,
+            8.0,
+            8.0,
+            8.0
+          ]
+        }
+      },
+      "comparisons": {
+        "multi-stage": {
+          "baseline_mean": 9.0,
+          "treatment_mean": 8.0,
+          "delta": -1.0,
+          "delta_pct": -11.11111111111111,
+          "cohens_d": -Infinity,
+          "cliffs_delta": -1.0,
+          "welch_t": Infinity,
+          "welch_df": 8.0,
+          "welch_p": 0.0,
+          "permutation_p": 0.007936507936507936,
+          "deterministic": true
+        }
+      }
+    },
+    "time_to_ready_s": {
+      "variants": {
+        "single-stage": {
+          "n": 5,
+          "mean": 0.6664857999421656,
+          "median": 0.6444483329541981,
+          "stdev": 0.17608830803162878,
+          "minimum": 0.4346251250244677,
+          "maximum": 0.9060163339599967,
+          "cv": 0.26420414065372266,
+          "ci95_low": 0.4478432873557864,
+          "ci95_high": 0.8851283125285448,
+          "bootstrap_ci95": [
+            0.5400863999966532,
+            0.8013891335576773
+          ],
+          "deterministic": false,
+          "values": [
+            0.4346251250244677,
+            0.9060163339599967,
+            0.7521082919556648,
+            0.6444483329541981,
+            0.5952309158165008
+          ]
+        },
+        "multi-stage": {
+          "n": 5,
+          "mean": 0.26218127496540544,
+          "median": 0.25905141700059175,
+          "stdev": 0.026628189619347837,
+          "minimum": 0.23145362501963973,
+          "maximum": 0.3023123750463128,
+          "cv": 0.10156404046345949,
+          "ci95_low": 0.22911801057788572,
+          "ci95_high": 0.29524453935292516,
+          "bootstrap_ci95": [
+            0.24249274181202055,
+            0.2850052165798843
+          ],
+          "deterministic": false,
+          "values": [
+            0.24781787488609552,
+            0.23145362501963973,
+            0.25905141700059175,
+            0.2702710828743875,
+            0.3023123750463128
+          ]
+        }
+      },
+      "comparisons": {
+        "multi-stage": {
+          "baseline_mean": 0.6664857999421656,
+          "treatment_mean": 0.26218127496540544,
+          "delta": -0.40430452497676017,
+          "delta_pct": -60.662136389379,
+          "cohens_d": -3.210578918663083,
+          "cliffs_delta": -1.0,
+          "welch_t": -5.07637099534791,
+          "welch_df": 4.182845880874098,
+          "welch_p": 0.0062972620377079735,
+          "permutation_p": 0.007936507936507936,
+          "deterministic": false
+        }
+      }
+    }
+  }
+}

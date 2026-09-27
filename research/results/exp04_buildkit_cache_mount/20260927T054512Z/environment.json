@@ -1,0 +1,33 @@
+{
+  "captured_at": "2026-09-27T05:45:12.658847+00:00",
+  "host": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "processor": "arm",
+    "python": "3.13.13",
+    "cpu_count": 10
+  },
+  "docker": {
+    "client_version": "29.7.2",
+    "buildx_version": "github.com/docker/buildx v0.36.1-desktop.1 83d819cf8237b52ef45a2a9857eeb83a7b10977f",
+    "compose_version": "5.4.0",
+    "buildkit_enabled": true,
+    "binary": "/usr/local/bin/docker",
+    "ServerVersion": "29.7.2",
+    "Driver": "overlayfs",
+    "CgroupDriver": "cgroupfs",
+    "CgroupVersion": "2",
+    "KernelVersion": "7.0.12-linuxkit",
+    "OperatingSystem": "Docker Desktop",
+    "OSType": "linux",
+    "Architecture": "aarch64",
+    "NCPU": 10,
+    "MemTotal": 8319504384,
+    "DefaultRuntime": "runc"
+  },
+  "git": {
+    "commit": "980e53bad79df5bbc39873e002c3662b12d56846",
+    "dirty": false
+  },
+  "env": {}
+}

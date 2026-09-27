@@ -1,0 +1,355 @@
+{
+  "experiment": {
+    "id": "exp02_layer_cache_effectiveness",
+    "title": "Layer ordering and cache effectiveness on source-only changes",
+    "hypothesis": "Copying and installing dependencies before application source lets a source-only edit rebuild in well under a second of layer work, whereas copying the whole context first invalidates the dependency layer and makes every edit pay the full pip install cost. Expected effect size: large (d > 0.8), rebuild time ratio > 5x.",
+    "procedure": "cache_probe",
+    "baseline": "source-first",
+    "variants": [
+      {
+        "name": "source-first",
+        "dockerfile": "fixtures/layer-cache/Dockerfile.source-first",
+        "context": "fixtures/app",
+        "build_args": {},
+        "description": "COPY . . before pip install (anti-pattern)"
+      },
+      {
+        "name": "deps-first",
+        "dockerfile": "fixtures/layer-cache/Dockerfile.deps-first",
+        "context": "fixtures/app",
+        "build_args": {},
+        "description": "COPY requirements.txt + pip install before COPY . ."
+      }
+    ],
+    "design": {
+      "repetitions": 7,
+      "warmup": 1,
+      "seed": 42,
+      "order": "block-randomised"
+    },
+    "readiness": null,
+    "cache_probe": {
+      "mutate_file": "app.py"
+    },
+    "tags": [
+      "build-cache",
+      "ci-smoke"
+    ],
+    "notes": "Each trial copies the fixture context to a scratch directory, warms the cache with one build, appends a comment to app.py, then times the rebuild."
+  },
+  "environment": {
+    "captured_at": "2026-09-27T05:40:55.707879+00:00",
+    "host": {
+      "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+      "machine": "arm64",
+      "processor": "arm",
+      "python": "3.13.13",
+      "cpu_count": 10
+    },
+    "docker": {
+      "client_version": "29.7.2",
+      "buildx_version": "github.com/docker/buildx v0.36.1-desktop.1 83d819cf8237b52ef45a2a9857eeb83a7b10977f",
+      "compose_version": "5.4.0",
+      "buildkit_enabled": true,
+      "binary": "/usr/local/bin/docker",
+      "ServerVersion": "29.7.2",
+      "Driver": "overlayfs",
+      "CgroupDriver": "cgroupfs",
+      "CgroupVersion": "2",
+      "KernelVersion": "7.0.12-linuxkit",
+      "OperatingSystem": "Docker Desktop",
+      "OSType": "linux",
+      "Architecture": "aarch64",
+      "NCPU": 10,
+      "MemTotal": 8319504384,
+      "DefaultRuntime": "runc"
+    },
+    "git": {
+      "commit": "980e53bad79df5bbc39873e002c3662b12d56846",
+      "dirty": false
+    },
+    "env": {}
+  },
+  "run_dir": "research/results/exp02_layer_cache_effectiveness/20260927T054055Z",
+  "trials_recorded": 14,
+  "trials_failed": 0,
+  "failures": [],
+  "metrics": {
+    "warm_build_s": {
+      "variants": {
+        "source-first": {
+          "n": 7,
+          "mean": 0.5306940355471202,
+          "median": 0.5137273750733584,
+          "stdev": 0.07523299253785608,
+          "minimum": 0.42518516699783504,
+          "maximum": 0.6436978748533875,
+          "cv": 0.1417634032014218,
+          "ci95_low": 0.4611151222654491,
+          "ci95_high": 0.6002729488287915,
+          "bootstrap_ci95": [
+            0.4818957022590829,
+            0.5856886605199959
+          ],
+          "deterministic": false,
+          "values": [
+            0.5137273750733584,
+            0.6003238330595195,
+            0.42518516699783504,
+            0.49537799996323884,
+            0.5592977909836918,
+            0.6436978748533875,
+            0.4772482078988105
+          ]
+        },
+        "deps-first": {
+          "n": 7,
+          "mean": 0.5609881845635495,
+          "median": 0.5332896660547704,
+          "stdev": 0.051341324566258645,
+          "minimum": 0.5137442499399185,
+          "maximum": 0.662628416903317,
+          "cv": 0.09151944012190266,
+          "ci95_low": 0.5135053788255705,
+          "ci95_high": 0.6084709903015285,
+          "bootstrap_ci95": [
+            0.5300518749946994,
+            0.598753053661702
+          ],
+          "deterministic": false,
+          "values": [
+            0.5814142499584705,
+            0.662628416903317,
+            0.5325539580080658,
+            0.5332896660547704,
+            0.5283487921115011,
+            0.5137442499399185,
+            0.5749379589688033
+          ]
+        }
+      },
+      "comparisons": {
+        "deps-first": {
+          "baseline_mean": 0.5306940355471202,
+          "treatment_mean": 0.5609881845635495,
+          "delta": 0.03029414901642924,
+          "delta_pct": 5.708402014580288,
+          "cohens_d": 0.4703715985690714,
+          "cliffs_delta": 0.3469387755102041,
+          "welch_t": 0.8799846831573166,
+          "welch_df": 10.592489876717476,
+          "welch_p": 0.39839260265847587,
+          "permutation_p": 0.3916083916083916,
+          "deterministic": false
+        }
+      }
+    },
+    "incremental_rebuild_s": {
+      "variants": {
+        "source-first": {
+          "n": 7,
+          "mean": 3.1313715949987193,
+          "median": 3.0135790000203997,
+          "stdev": 0.2834307103569437,
+          "minimum": 2.834341583075002,
+          "maximum": 3.681473582983017,
+          "cv": 0.09051327884867642,
+          "ci95_low": 2.8692419075831213,
+          "ci95_high": 3.3935012824143174,
+          "bootstrap_ci95": [
+            2.9599121606110463,
+            3.345992023590952
+          ],
+          "deterministic": false,
+          "values": [
+            3.0135790000203997,
+            3.2731576249934733,
+            2.928287665825337,
+            3.681473582983017,
+            3.013138333102688,
+            2.834341583075002,
+            3.175623374991119
+          ]
+        },
+        "deps-first": {
+          "n": 7,
+          "mean": 0.6225272738042155,
+          "median": 0.6247986669186503,
+          "stdev": 0.07970989901417688,
+          "minimum": 0.5149159170687199,
+          "maximum": 0.7213262917939574,
+          "cv": 0.12804242057874177,
+          "ci95_low": 0.5488079126023139,
+          "ci95_high": 0.696246635006117,
+          "bootstrap_ci95": [
+            0.5673406131432525,
+            0.6777139344651785
+          ],
+          "deterministic": false,
+          "values": [
+            0.6247986669186503,
+            0.7213262917939574,
+            0.5365902080666274,
+            0.7164864579681307,
+            0.6385317498352379,
+            0.5149159170687199,
+            0.6050416249781847
+          ]
+        }
+      },
+      "comparisons": {
+        "deps-first": {
+          "baseline_mean": 3.1313715949987193,
+          "treatment_mean": 0.6225272738042155,
+          "delta": -2.5088443211945037,
+          "delta_pct": -80.1196614672469,
+          "cohens_d": -12.050710055178882,
+          "cliffs_delta": -1.0,
+          "welch_t": -22.544814146915538,
+          "welch_df": 6.94319977838481,
+          "welch_p": 9.429510838820931e-08,
+          "permutation_p": 0.0005827505827505828,
+          "deterministic": false
+        }
+      }
+    },
+    "image_size_mb": {
+      "variants": {
+        "source-first": {
+          "n": 7,
+          "mean": 48.43654342857143,
+          "median": 48.436526,
+          "stdev": 7.053806807332136e-05,
+          "minimum": 48.436435,
+          "maximum": 48.436653,
+          "cv": 1.4562985522974544e-06,
+          "ci95_low": 48.436478191739084,
+          "ci95_high": 48.43660866540378,
+          "bootstrap_ci95": [
+            48.43649271428571,
+            48.436587857142854
+          ],
+          "deterministic": true,
+          "values": [
+            48.436653,
+            48.436526,
+            48.436608,
+            48.436515,
+            48.436551,
+            48.436435,
+            48.436516
+          ]
+        },
+        "deps-first": {
+          "n": 7,
+          "mean": 48.43719071428571,
+          "median": 48.437191,
+          "stdev": 1.6035674520679408e-06,
+          "minimum": 48.437188,
+          "maximum": 48.437193,
+          "cv": 3.310612007882192e-08,
+          "ci95_low": 48.43718923123317,
+          "ci95_high": 48.437192197338256,
+          "bootstrap_ci95": [
+            48.437189571428576,
+            48.43719185714286
+          ],
+          "deterministic": true,
+          "values": [
+            48.43719,
+            48.437191,
+            48.437193,
+            48.437192,
+            48.437188,
+            48.437191,
+            48.43719
+          ]
+        }
+      },
+      "comparisons": {
+        "deps-first": {
+          "baseline_mean": 48.43654342857143,
+          "treatment_mean": 48.43719071428571,
+          "delta": 0.0006472857142796329,
+          "delta_pct": 0.0013363581883876054,
+          "cohens_d": 12.974040974615464,
+          "cliffs_delta": 1.0,
+          "welch_t": 24.272208124488873,
+          "welch_df": 6.006201667439512,
+          "welch_p": 3.177124443531909e-07,
+          "permutation_p": 0.0005827505827505828,
+          "deterministic": true
+        }
+      }
+    },
+    "layer_count": {
+      "variants": {
+        "source-first": {
+          "n": 7,
+          "mean": 7.0,
+          "median": 7.0,
+          "stdev": 0.0,
+          "minimum": 7.0,
+          "maximum": 7.0,
+          "cv": 0.0,
+          "ci95_low": 7.0,
+          "ci95_high": 7.0,
+          "bootstrap_ci95": [
+            7.0,
+            7.0
+          ],
+          "deterministic": true,
+          "values": [
+            7.0,
+            7.0,
+            7.0,
+            7.0,
+            7.0,
+            7.0,
+            7.0
+          ]
+        },
+        "deps-first": {
+          "n": 7,
+          "mean": 8.0,
+          "median": 8.0,
+          "stdev": 0.0,
+          "minimum": 8.0,
+          "maximum": 8.0,
+          "cv": 0.0,
+          "ci95_low": 8.0,
+          "ci95_high": 8.0,
+          "bootstrap_ci95": [
+            8.0,
+            8.0
+          ],
+          "deterministic": true,
+          "values": [
+            8.0,
+            8.0,
+            8.0,
+            8.0,
+            8.0,
+            8.0,
+            8.0
+          ]
+        }
+      },
+      "comparisons": {
+        "deps-first": {
+          "baseline_mean": 7.0,
+          "treatment_mean": 8.0,
+          "delta": 1.0,
+          "delta_pct": 14.285714285714286,
+          "cohens_d": Infinity,
+          "cliffs_delta": 1.0,
+          "welch_t": Infinity,
+          "welch_df": 12.0,
+          "welch_p": 0.0,
+          "permutation_p": 0.0005827505827505828,
+          "deterministic": true
+        }
+      }
+    }
+  }
+}

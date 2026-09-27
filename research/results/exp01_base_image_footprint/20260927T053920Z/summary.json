@@ -1,0 +1,644 @@
+{
+  "experiment": {
+    "id": "exp01_base_image_footprint",
+    "title": "Base image choice: footprint, cold build time and cold start",
+    "hypothesis": "For an identical pure-Python Flask workload, slim, Alpine and distroless bases reduce image size by more than 70% relative to the full Debian image, and reduce cold-start latency measurably; Alpine's musl libc does not change cold start for a pure-Python app.",
+    "procedure": "build",
+    "baseline": "full",
+    "variants": [
+      {
+        "name": "full",
+        "dockerfile": "fixtures/base-images/Dockerfile.full",
+        "context": "fixtures/app",
+        "build_args": {},
+        "description": "python:3.12 (Debian bookworm, full toolchain)"
+      },
+      {
+        "name": "slim",
+        "dockerfile": "fixtures/base-images/Dockerfile.slim",
+        "context": "fixtures/app",
+        "build_args": {},
+        "description": "python:3.12-slim"
+      },
+      {
+        "name": "alpine",
+        "dockerfile": "fixtures/base-images/Dockerfile.alpine",
+        "context": "fixtures/app",
+        "build_args": {},
+        "description": "python:3.12-alpine (musl)"
+      },
+      {
+        "name": "distroless",
+        "dockerfile": "fixtures/base-images/Dockerfile.distroless",
+        "context": "fixtures/app",
+        "build_args": {},
+        "description": "gcr.io/distroless/python3-debian12:nonroot, deps via --target"
+      }
+    ],
+    "design": {
+      "repetitions": 5,
+      "warmup": 1,
+      "seed": 42,
+      "order": "block-randomised"
+    },
+    "readiness": {
+      "port": 5000,
+      "path": "/health",
+      "timeout": 60
+    },
+    "cache_probe": null,
+    "tags": [
+      "images",
+      "startup",
+      "ci-smoke"
+    ],
+    "notes": "Cold build uses --no-cache but base layers may already be present locally after warm-up; this is intentional and mirrors a developer machine. Set design.prune_between_trials=true for a fully cold builder cache."
+  },
+  "environment": {
+    "captured_at": "2026-09-27T05:39:20.724469+00:00",
+    "host": {
+      "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+      "machine": "arm64",
+      "processor": "arm",
+      "python": "3.13.13",
+      "cpu_count": 10
+    },
+    "docker": {
+      "client_version": "29.7.2",
+      "buildx_version": "github.com/docker/buildx v0.36.1-desktop.1 83d819cf8237b52ef45a2a9857eeb83a7b10977f",
+      "compose_version": "5.4.0",
+      "buildkit_enabled": true,
+      "binary": "/usr/local/bin/docker",
+      "ServerVersion": "29.7.2",
+      "Driver": "overlayfs",
+      "CgroupDriver": "cgroupfs",
+      "CgroupVersion": "2",
+      "KernelVersion": "7.0.12-linuxkit",
+      "OperatingSystem": "Docker Desktop",
+      "OSType": "linux",
+      "Architecture": "aarch64",
+      "NCPU": 10,
+      "MemTotal": 8319504384,
+      "DefaultRuntime": "runc"
+    },
+    "git": {
+      "commit": "980e53bad79df5bbc39873e002c3662b12d56846",
+      "dirty": false
+    },
+    "env": {}
+  },
+  "run_dir": "research/results/exp01_base_image_footprint/20260927T053920Z",
+  "trials_recorded": 20,
+  "trials_failed": 0,
+  "failures": [],
+  "metrics": {
+    "build_time_s": {
+      "variants": {
+        "full": {
+          "n": 5,
+          "mean": 3.4230769084300845,
+          "median": 3.292483750032261,
+          "stdev": 0.6061479448514827,
+          "minimum": 2.81009625014849,
+          "maximum": 4.128408916061744,
+          "cv": 0.17707692846710785,
+          "ci95_low": 2.670444827726615,
+          "ci95_high": 4.175708989133554,
+          "bootstrap_ci95": [
+            2.9442610336933286,
+            3.8835900246631354
+          ],
+          "deterministic": false,
+          "values": [
+            2.81009625014849,
+            3.980081166839227,
+            3.292483750032261,
+            2.9043144590687007,
+            4.128408916061744
+          ]
+        },
+        "slim": {
+          "n": 5,
+          "mean": 3.3761286583729087,
+          "median": 3.1355024171061814,
+          "stdev": 0.4935667284675533,
+          "minimum": 2.955343624809757,
+          "maximum": 4.194424832938239,
+          "cv": 0.14619310411749023,
+          "ci95_low": 2.763284620926643,
+          "ci95_high": 3.9889726958191742,
+          "bootstrap_ci95": [
+            3.060455883294344,
+            3.770855866605416
+          ],
+          "deterministic": false,
+          "values": [
+            2.955343624809757,
+            4.194424832938239,
+            3.4673275421373546,
+            3.1280448748730123,
+            3.1355024171061814
+          ]
+        },
+        "alpine": {
+          "n": 5,
+          "mean": 3.3963934583589435,
+          "median": 3.4333099159412086,
+          "stdev": 0.31690656155886826,
+          "minimum": 3.0259237089194357,
+          "maximum": 3.84680795785971,
+          "cv": 0.09330678716828938,
+          "ci95_low": 3.0029019900787475,
+          "ci95_high": 3.7898849266391395,
+          "bootstrap_ci95": [
+            3.1507393671665342,
+            3.6432699165306985
+          ],
+          "deterministic": false,
+          "values": [
+            3.4333099159412086,
+            3.5013747920747846,
+            3.84680795785971,
+            3.1745509169995785,
+            3.0259237089194357
+          ]
+        },
+        "distroless": {
+          "n": 5,
+          "mean": 3.4535880495328457,
+          "median": 3.3074994578491896,
+          "stdev": 0.39878328693891874,
+          "minimum": 3.142928665969521,
+          "maximum": 4.1392377079464495,
+          "cv": 0.11546926883559859,
+          "ci95_low": 2.95843319905794,
+          "ci95_high": 3.948742900007751,
+          "bootstrap_ci95": [
+            3.2124236243311315,
+            3.8009071079548447
+          ],
+          "deterministic": false,
+          "values": [
+            3.2343806659337133,
+            4.1392377079464495,
+            3.3074994578491896,
+            3.443893749965355,
+            3.142928665969521
+          ]
+        }
+      },
+      "comparisons": {
+        "slim": {
+          "baseline_mean": 3.4230769084300845,
+          "treatment_mean": 3.3761286583729087,
+          "delta": -0.046948250057175844,
+          "delta_pct": -1.3715219176512041,
+          "cohens_d": -0.08493867249700071,
+          "cliffs_delta": 0.12,
+          "welch_t": -0.13429983326081185,
+          "welch_df": 7.684505294077014,
+          "welch_p": 0.8966159922041874,
+          "permutation_p": 0.9126984126984127,
+          "deterministic": false
+        },
+        "alpine": {
+          "baseline_mean": 3.4230769084300845,
+          "treatment_mean": 3.3963934583589435,
+          "delta": -0.026683450071141035,
+          "delta_pct": -0.7795165222676457,
+          "cohens_d": -0.055170375117518475,
+          "cliffs_delta": 0.04,
+          "welch_t": -0.08723202236861904,
+          "welch_df": 6.034706095338429,
+          "welch_p": 0.9333096717640808,
+          "permutation_p": 0.9285714285714286,
+          "deterministic": false
+        },
+        "distroless": {
+          "baseline_mean": 3.4230769084300845,
+          "treatment_mean": 3.4535880495328457,
+          "delta": 0.030511141102761208,
+          "delta_pct": 0.8913367101866969,
+          "cohens_d": 0.059469952089994026,
+          "cliffs_delta": 0.2,
+          "welch_t": 0.09403025047273597,
+          "welch_df": 6.9162924973796835,
+          "welch_p": 0.9277511273105603,
+          "permutation_p": 0.9523809523809523,
+          "deterministic": false
+        }
+      }
+    },
+    "image_size_mb": {
+      "variants": {
+        "full": {
+          "n": 5,
+          "mean": 405.04776019999997,
+          "median": 405.047819,
+          "stdev": 0.00011822732339436115,
+          "minimum": 405.047608,
+          "maximum": 405.047865,
+          "cv": 2.91884896082339e-07,
+          "ci95_low": 405.0476134013889,
+          "ci95_high": 405.04790699861104,
+          "bootstrap_ci95": [
+            405.0476666,
+            405.0478468
+          ],
+          "deterministic": true,
+          "values": [
+            405.047659,
+            405.047865,
+            405.047819,
+            405.047608,
+            405.04785
+          ]
+        },
+        "slim": {
+          "n": 5,
+          "mean": 48.4369984,
+          "median": 48.437014,
+          "stdev": 0.00010766986579455827,
+          "minimum": 48.436883,
+          "maximum": 48.437119,
+          "cv": 2.222884764770194e-06,
+          "ci95_low": 48.43686471020395,
+          "ci95_high": 48.43713208979605,
+          "bootstrap_ci95": [
+            48.4369132,
+            48.437077
+          ],
+          "deterministic": true,
+          "values": [
+            48.437014,
+            48.437119,
+            48.436893,
+            48.436883,
+            48.437083
+          ]
+        },
+        "alpine": {
+          "n": 5,
+          "mean": 23.4559186,
+          "median": 23.455927,
+          "stdev": 4.531335344046694e-05,
+          "minimum": 23.455854,
+          "maximum": 23.455979,
+          "cv": 1.9318515813943414e-06,
+          "ci95_low": 23.455862336040397,
+          "ci95_high": 23.455974863959604,
+          "bootstrap_ci95": [
+            23.4558832,
+            23.455954
+          ],
+          "deterministic": true,
+          "values": [
+            23.455927,
+            23.455904,
+            23.455929,
+            23.455979,
+            23.455854
+          ]
+        },
+        "distroless": {
+          "n": 5,
+          "mean": 20.9036514,
+          "median": 20.903631,
+          "stdev": 4.0277785440669875e-05,
+          "minimum": 20.903616,
+          "maximum": 20.903704,
+          "cv": 1.9268301345988707e-06,
+          "ci95_low": 20.903601388523892,
+          "ci95_high": 20.90370141147611,
+          "bootstrap_ci95": [
+            20.903621,
+            20.9036836
+          ],
+          "deterministic": true,
+          "values": [
+            20.903616,
+            20.903621,
+            20.903685,
+            20.903631,
+            20.903704
+          ]
+        }
+      },
+      "comparisons": {
+        "slim": {
+          "baseline_mean": 405.04776019999997,
+          "treatment_mean": 48.4369984,
+          "delta": -356.6107618,
+          "delta_pct": -88.04165751315763,
+          "cohens_d": -3153841.2775236424,
+          "cliffs_delta": -1.0,
+          "welch_t": -4986660.907814958,
+          "welch_df": 7.9310093293942225,
+          "welch_p": 0.0,
+          "permutation_p": 0.007936507936507936,
+          "deterministic": true
+        },
+        "alpine": {
+          "baseline_mean": 405.04776019999997,
+          "treatment_mean": 23.4559186,
+          "delta": -381.59184159999995,
+          "delta_pct": -94.20909806082665,
+          "cohens_d": -4262199.480087467,
+          "cliffs_delta": -1.0,
+          "welch_t": -6739129.099530939,
+          "welch_df": 5.150362401160449,
+          "welch_p": 0.0,
+          "permutation_p": 0.007936507936507936,
+          "deterministic": true
+        },
+        "distroless": {
+          "baseline_mean": 405.04776019999997,
+          "treatment_mean": 20.9036514,
+          "delta": -384.14410879999997,
+          "delta_pct": -94.83921318570471,
+          "cohens_d": -4349575.522380128,
+          "cliffs_delta": -1.0,
+          "welch_t": -6877282.752818944,
+          "welch_df": 4.916166131321642,
+          "welch_p": 0.0,
+          "permutation_p": 0.007936507936507936,
+          "deterministic": true
+        }
+      }
+    },
+    "layer_count": {
+      "variants": {
+        "full": {
+          "n": 5,
+          "mean": 11.0,
+          "median": 11.0,
+          "stdev": 0.0,
+          "minimum": 11.0,
+          "maximum": 11.0,
+          "cv": 0.0,
+          "ci95_low": 11.0,
+          "ci95_high": 11.0,
+          "bootstrap_ci95": [
+            11.0,
+            11.0
+          ],
+          "deterministic": true,
+          "values": [
+            11.0,
+            11.0,
+            11.0,
+            11.0,
+            11.0
+          ]
+        },
+        "slim": {
+          "n": 5,
+          "mean": 8.0,
+          "median": 8.0,
+          "stdev": 0.0,
+          "minimum": 8.0,
+          "maximum": 8.0,
+          "cv": 0.0,
+          "ci95_low": 8.0,
+          "ci95_high": 8.0,
+          "bootstrap_ci95": [
+            8.0,
+            8.0
+          ],
+          "deterministic": true,
+          "values": [
+            8.0,
+            8.0,
+            8.0,
+            8.0,
+            8.0
+          ]
+        },
+        "alpine": {
+          "n": 5,
+          "mean": 8.0,
+          "median": 8.0,
+          "stdev": 0.0,
+          "minimum": 8.0,
+          "maximum": 8.0,
+          "cv": 0.0,
+          "ci95_low": 8.0,
+          "ci95_high": 8.0,
+          "bootstrap_ci95": [
+            8.0,
+            8.0
+          ],
+          "deterministic": true,
+          "values": [
+            8.0,
+            8.0,
+            8.0,
+            8.0,
+            8.0
+          ]
+        },
+        "distroless": {
+          "n": 5,
+          "mean": 46.0,
+          "median": 46.0,
+          "stdev": 0.0,
+          "minimum": 46.0,
+          "maximum": 46.0,
+          "cv": 0.0,
+          "ci95_low": 46.0,
+          "ci95_high": 46.0,
+          "bootstrap_ci95": [
+            46.0,
+            46.0
+          ],
+          "deterministic": true,
+          "values": [
+            46.0,
+            46.0,
+            46.0,
+            46.0,
+            46.0
+          ]
+        }
+      },
+      "comparisons": {
+        "slim": {
+          "baseline_mean": 11.0,
+          "treatment_mean": 8.0,
+          "delta": -3.0,
+          "delta_pct": -27.272727272727273,
+          "cohens_d": -Infinity,
+          "cliffs_delta": -1.0,
+          "welch_t": Infinity,
+          "welch_df": 8.0,
+          "welch_p": 0.0,
+          "permutation_p": 0.007936507936507936,
+          "deterministic": true
+        },
+        "alpine": {
+          "baseline_mean": 11.0,
+          "treatment_mean": 8.0,
+          "delta": -3.0,
+          "delta_pct": -27.272727272727273,
+          "cohens_d": -Infinity,
+          "cliffs_delta": -1.0,
+          "welch_t": Infinity,
+          "welch_df": 8.0,
+          "welch_p": 0.0,
+          "permutation_p": 0.007936507936507936,
+          "deterministic": true
+        },
+        "distroless": {
+          "baseline_mean": 11.0,
+          "treatment_mean": 46.0,
+          "delta": 35.0,
+          "delta_pct": 318.1818181818182,
+          "cohens_d": Infinity,
+          "cliffs_delta": 1.0,
+          "welch_t": Infinity,
+          "welch_df": 8.0,
+          "welch_p": 0.0,
+          "permutation_p": 0.007936507936507936,
+          "deterministic": true
+        }
+      }
+    },
+    "time_to_ready_s": {
+      "variants": {
+        "full": {
+          "n": 5,
+          "mean": 0.23855670816265045,
+          "median": 0.24551587481983006,
+          "stdev": 0.02434375570048562,
+          "minimum": 0.20972333289682865,
+          "maximum": 0.2691002080682665,
+          "cv": 0.10204599102653526,
+          "ci95_low": 0.2083299431284431,
+          "ci95_high": 0.2687834731968578,
+          "bootstrap_ci95": [
+            0.2195228247437626,
+            0.25688310819678006
+          ],
+          "deterministic": false,
+          "values": [
+            0.21809450001455843,
+            0.2691002080682665,
+            0.2503496250137687,
+            0.20972333289682865,
+            0.24551587481983006
+          ]
+        },
+        "slim": {
+          "n": 5,
+          "mean": 0.34036840819753705,
+          "median": 0.2688876250758767,
+          "stdev": 0.23041998721034537,
+          "minimum": 0.20069433306343853,
+          "maximum": 0.7480894578620791,
+          "cv": 0.6769723090064759,
+          "ci95_low": 0.05426420561333056,
+          "ci95_high": 0.6264726107817435,
+          "bootstrap_ci95": [
+            0.2176242582499981,
+            0.5444156997371465
+          ],
+          "deterministic": false,
+          "values": [
+            0.20069433306343853,
+            0.7480894578620791,
+            0.2752481249626726,
+            0.20892250002361834,
+            0.2688876250758767
+          ]
+        },
+        "alpine": {
+          "n": 5,
+          "mean": 0.3257142583839595,
+          "median": 0.2916938329581171,
+          "stdev": 0.1309182015442049,
+          "minimum": 0.19887337507680058,
+          "maximum": 0.5420777078252286,
+          "cv": 0.4019418805727426,
+          "ci95_low": 0.16315784081776033,
+          "ci95_high": 0.4882706759501587,
+          "bootstrap_ci95": [
+            0.2416879002470523,
+            0.4354852830991149
+          ],
+          "deterministic": false,
+          "values": [
+            0.19887337507680058,
+            0.5420777078252286,
+            0.33642691699787974,
+            0.2916938329581171,
+            0.25949945906177163
+          ]
+        },
+        "distroless": {
+          "n": 5,
+          "mean": 0.41091290027834476,
+          "median": 0.39615933410823345,
+          "stdev": 0.03332151619702066,
+          "minimum": 0.3824956670869142,
+          "maximum": 0.46327895810827613,
+          "cv": 0.08109143366988304,
+          "ci95_low": 0.3695387732511505,
+          "ci95_high": 0.45228702730553905,
+          "bootstrap_ci95": [
+            0.3876479004509747,
+            0.43928373330272735
+          ],
+          "deterministic": false,
+          "values": [
+            0.39615933410823345,
+            0.42408612510189414,
+            0.46327895810827613,
+            0.38854441698640585,
+            0.3824956670869142
+          ]
+        }
+      },
+      "comparisons": {
+        "slim": {
+          "baseline_mean": 0.23855670816265045,
+          "treatment_mean": 0.34036840819753705,
+          "delta": 0.1018117000348866,
+          "delta_pct": 42.67819623226454,
+          "cohens_d": 0.6214156811618449,
+          "cliffs_delta": 0.12,
+          "welch_t": 0.9825444631082091,
+          "welch_df": 4.0892834059108445,
+          "welch_p": 0.38032876532525695,
+          "permutation_p": 0.48412698412698413,
+          "deterministic": false
+        },
+        "alpine": {
+          "baseline_mean": 0.23855670816265045,
+          "treatment_mean": 0.3257142583839595,
+          "delta": 0.08715755022130905,
+          "delta_pct": 36.53535919932468,
+          "cohens_d": 0.9256328870704298,
+          "cliffs_delta": 0.52,
+          "welch_t": 1.46355410014999,
+          "welch_df": 4.276277932961014,
+          "welch_p": 0.21268841087519097,
+          "permutation_p": 0.15079365079365079,
+          "deterministic": false
+        },
+        "distroless": {
+          "baseline_mean": 0.23855670816265045,
+          "treatment_mean": 0.41091290027834476,
+          "delta": 0.1723561921156943,
+          "delta_pct": 72.24956843308722,
+          "cohens_d": 5.90666003145393,
+          "cliffs_delta": 1.0,
+          "welch_t": 9.339249531838112,
+          "welch_df": 7.323191996831262,
+          "welch_p": 2.5157599481850923e-05,
+          "permutation_p": 0.007936507936507936,
+          "deterministic": false
+        }
+      }
+    }
+  }
+}
