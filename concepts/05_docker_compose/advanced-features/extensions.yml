@@ -30,10 +30,10 @@ x-resource-limits: &standard-resources
     cpus: "0.25"
     memory: 256M
 
-x-common-environment: &common-env
-  - NODE_ENV=${NODE_ENV:-production}
-  - LOG_LEVEL=${LOG_LEVEL:-info}
-  - TZ=${TZ:-UTC}
+x-common-environment: &common-env  # a mapping, so services can merge it with <<:
+  NODE_ENV: "${NODE_ENV:-production}"
+  LOG_LEVEL: "${LOG_LEVEL:-info}"
+  TZ: "${TZ:-UTC}"
 
 services:
   # Web service using extensions
@@ -91,9 +91,9 @@ services:
       <<: *http-healthcheck
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
     environment:
-      - <<: *common-env
-      - API_PORT=3000
-      - DATABASE_URL=postgresql://user:pass@database:5432/apidb
+      <<: *common-env
+      API_PORT: "3000"
+      DATABASE_URL: "postgresql://user:pass@database:5432/apidb"
     networks:
       - frontend
       - backend
@@ -104,10 +104,10 @@ services:
   database:
     image: postgres:13-alpine
     environment:
-      - POSTGRES_DB=apidb
-      - POSTGRES_USER=user
-      - POSTGRES_PASSWORD=pass
-      - <<: *common-env
+      POSTGRES_DB: "apidb"
+      POSTGRES_USER: "user"
+      POSTGRES_PASSWORD: "pass"
+      <<: *common-env
     logging: *default-logging
     deploy:
       replicas: 1
@@ -153,9 +153,9 @@ services:
           cpus: "0.1"
           memory: 128M
     environment:
-      - <<: *common-env
-      - WORKER_CONCURRENCY=4
-      - QUEUE_URL=redis://redis:6379
+      <<: *common-env
+      WORKER_CONCURRENCY: "4"
+      QUEUE_URL: "redis://redis:6379"
     networks:
       - backend
     depends_on:
@@ -209,8 +209,8 @@ services:
       <<: *restart-policy
       resources: *standard-resources
     environment:
-      - <<: *common-env
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      <<: *common-env
+      GF_SECURITY_ADMIN_PASSWORD: "admin"
     volumes:
       - grafana-data:/var/lib/grafana
     networks:
