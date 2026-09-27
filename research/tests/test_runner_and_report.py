@@ -216,3 +216,12 @@ def test_report_statistics_and_markdown(tmp_path):
 
     idx = report.write_index(tmp_path / "results")
     assert "expT_fake" in idx.read_text()
+
+
+def test_deterministic_detection():
+    from research.harness.report import _is_deterministic
+
+    assert _is_deterministic([405.047659, 405.047865, 405.047608])  # byte jitter
+    assert _is_deterministic([8.0, 8.0, 8.0])
+    assert not _is_deterministic([3.1, 3.4, 2.9])  # real timing variance
+    assert not _is_deterministic([1.0])

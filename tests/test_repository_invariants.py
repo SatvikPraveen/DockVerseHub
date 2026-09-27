@@ -91,7 +91,8 @@ def test_no_stray_brace_named_files():
 MINIMAL_BASE = re.compile(r"^FROM\s+\S*(?:-slim|-alpine|distroless)\S*", re.M | re.I)
 INSTALLS_CURL = re.compile(
     # allow backslash-newline continuations inside the install command
-    r"(apt-get|apk|yum|dnf|microdnf)\s+(?:-\S+\s+)*(?:install|add)(?:[^\n]|\\\n)*\bcurl\b", re.I
+    r"(apt-get|apk|yum|dnf|microdnf)\s+(?:-\S+\s+)*(?:install|add)(?:[^\n]|\\\n)*\bcurl\b",
+    re.I,
 )
 HEALTHCHECK_CURL = re.compile(r"HEALTHCHECK[^\n]*(?:\\\n[^\n]*)*\bcurl\b", re.I)
 

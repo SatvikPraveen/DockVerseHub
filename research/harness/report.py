@@ -37,6 +37,24 @@ def _pfmt(p: float) -> str:
     return "<0.001" if p < 0.001 else f"{p:.3f}"
 
 
+def _variant_order(exp: dict[str, Any]) -> list[str]:
+    """Baseline first, then the remaining variants in definition order."""
+    names = [v["name"] for v in exp["variants"]]
+    return [exp["baseline"]] + [n for n in names if n != exp["baseline"]]
+
+
+def _is_deterministic(values: list[float]) -> bool:
+    """True when the spread is at byte-jitter level (<= 0.01 % of the mean).
+
+    Image sizes differ by a few hundred bytes between otherwise identical
+    builds (file mtimes baked into layers); that is not experimental variance.
+    """
+    if len(values) < 2:
+        return False
+    m = sum(values) / len(values)
+    return max(values) - min(values) <= 1e-4 * max(abs(m), 1e-9)
+
+
 def collect(raw: list[dict[str, Any]]) -> dict[str, dict[str, list[float]]]:
     """metric -> variant -> recorded, successful values (in round order)."""
     out: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
@@ -61,20 +79,29 @@ def summarize_run(run_dir: Path) -> dict[str, Any]:
     seed = int(exp.get("design", {}).get("seed", 42))
     failures = [r for r in raw if r.get("status") != "ok"]
 
+    order = _variant_order(exp)
     metrics_out: dict[str, Any] = {}
     for metric, by_variant in data.items():
         entry: dict[str, Any] = {"variants": {}, "comparisons": {}}
-        for variant, values in by_variant.items():
+        present = [v for v in order if v in by_variant]
+        for variant in present:
+            values = by_variant[variant]
             s = stats.summarize(values).to_dict()
             if len(values) >= 2:
                 s["bootstrap_ci95"] = list(stats.bootstrap_ci(values, seed=seed))
+            s["deterministic"] = _is_deterministic(values)
             s["values"] = values
             entry["variants"][variant] = s
         base_vals = by_variant.get(baseline, [])
-        for variant, values in by_variant.items():
+        for variant in present:
+            values = by_variant[variant]
             if variant == baseline or not base_vals or not values:
                 continue
-            entry["comparisons"][variant] = stats.compare(base_vals, values, seed=seed).to_dict()
+            c = stats.compare(base_vals, values, seed=seed).to_dict()
+            # When both samples are (near-)constant the pooled SD is byte noise and
+            # d explodes; flag it instead of printing a meaningless 7-digit number.
+            c["deterministic"] = _is_deterministic(base_vals) and _is_deterministic(values)
+            entry["comparisons"][variant] = c
         metrics_out[metric] = entry
 
     return {
@@ -177,9 +204,12 @@ def render_markdown(summary: dict[str, Any]) -> str:
             lines.append("| Variant | Δ | Δ% | Cohen's d | Cliff's δ | Welch p | Permutation p |")
             lines.append("|---|---:|---:|---:|---:|---:|---:|")
             for variant, c in entry["comparisons"].items():
-                d_label = stats.interpret_d(c["cohens_d"])
+                if c.get("deterministic"):
+                    d_cell = "n/a (deterministic)"
+                else:
+                    d_cell = f"{_fmt(c['cohens_d'], 2)} ({stats.interpret_d(c['cohens_d'])})"
                 lines.append(
-                    f"| `{variant}` | {_fmt(c['delta'])} | {_fmt(c['delta_pct'], 1)}% | {_fmt(c['cohens_d'], 2)} ({d_label}) | {_fmt(c['cliffs_delta'], 2)} | {_pfmt(c['welch_p'])} | {_pfmt(c['permutation_p'])} |"
+                    f"| `{variant}` | {_fmt(c['delta'])} | {_fmt(c['delta_pct'], 1)}% | {d_cell} | {_fmt(c['cliffs_delta'], 2)} | {_pfmt(c['welch_p'])} | {_pfmt(c['permutation_p'])} |"
                 )
         lines.append("")
 
@@ -215,6 +245,9 @@ def render_markdown(summary: dict[str, Any]) -> str:
     lines.append("")
     lines.append(
         "- The 95% CI is a Student-t interval on the mean; non-overlapping CIs are strong evidence of a real difference, overlapping CIs are inconclusive on their own."
+    )
+    lines.append(
+        "- A metric marked *deterministic* (image size, layer count) has no run-to-run variance, so Cohen's d is undefined; Δ% and Cliff's δ carry the whole story."
     )
     lines.append(
         "- Cohen's d is the standardised mean difference (|d| < 0.2 negligible, < 0.5 small, < 0.8 medium, else large). Cliff's δ is its rank-based counterpart and is robust to outliers."
@@ -260,6 +293,11 @@ def write_index(results_dir: Path) -> Path:
         "",
         "Regenerate this index with `python -m research.harness index`.",
         "",
+        *(
+            ["Interpretation of the committed runs: [FINDINGS.md](FINDINGS.md).", ""]
+            if (results_dir / "FINDINGS.md").exists()
+            else []
+        ),
         "| Experiment | Run | Trials | Failed | Host | Report |",
         "|---|---|---:|---:|---|---|",
         *rows,
