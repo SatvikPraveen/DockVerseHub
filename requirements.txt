@@ -1,90 +1,37 @@
 # Location: ./requirements.txt
+#
+# DockVerseHub - runtime dependencies for the repository tooling
+# (utilities/, research/ benchmark harness, lab helper scripts).
+#
+# Design rules:
+#   * Only packages actually imported by code in this repository.
+#   * Lower bounds only, so `pip install -r requirements.txt` resolves on
+#     current CPython (3.10 - 3.13). Fully pinned, hash-locked snapshots for
+#     archival reproducibility live in research/requirements-lock.txt.
+#   * The deprecated `docker-compose` PyPI package is intentionally absent:
+#     it pins PyYAML<6 and cannot co-exist with pyyaml>=6. Compose v2 is a
+#     Docker CLI plugin (`docker compose`) and needs no Python package.
+#
+# Development, linting and test tooling is in requirements-dev.txt.
 
-# DockVerseHub - Python Dependencies for Utilities
-# ================================================
+# Docker Engine API client used by utilities/ and research/
+docker>=7.1.0
 
-# Core utilities
-click>=8.1.0                    # Command-line interface creation
-rich>=13.7.0                    # Rich text and beautiful formatting
-pyyaml>=6.0.1                   # YAML parsing for Docker Compose files
-jinja2>=3.1.3                   # Template engine for code generation
-requests>=2.31.0                # HTTP library for API interactions
+# Structured configuration and Compose file parsing
+pyyaml>=6.0.2
 
-# Docker and containerization
-docker>=7.0.0                   # Docker Python API
-docker-compose>=1.29.3          # Docker Compose Python API
+# HTTP calls to registries, health endpoints and the GitHub API
+requests>=2.32.3
 
-# Security and vulnerability scanning
-bandit>=1.7.5                   # Security linting for Python code
-safety>=2.3.5                   # Dependency vulnerability checker
-semgrep>=1.45.0                 # Static analysis security scanner
+# System/process metrics for profiling and benchmark environment capture
+psutil>=6.0.0
 
-# Code quality and formatting
-black>=24.0.0                   # Code formatter
-flake8>=7.0.0                   # Code linting
-pylint>=3.0.0                   # Advanced code analysis
-mypy>=1.8.0                     # Static type checking
-isort>=5.13.0                   # Import sorting
+# Templating for generated Dockerfiles and reports
+jinja2>=3.1.4
 
-# Testing frameworks
-pytest>=7.4.3                   # Testing framework
-pytest-cov>=4.1.0               # Coverage reporting
-pytest-mock>=3.12.0             # Mocking utilities
-pytest-docker>=2.0.1            # Docker integration for tests
-
-# Performance and monitoring
-psutil>=5.9.6                   # System and process utilities
-py-spy>=0.3.14                  # Performance profiling
-memory-profiler>=0.61.0         # Memory usage profiling
-
-# Data processing and analysis
-pandas>=2.1.4                   # Data analysis and manipulation
-matplotlib>=3.8.0               # Plotting and visualization
-seaborn>=0.13.0                 # Statistical data visualization
-numpy>=1.26.0                   # Numerical computing
-
-# Web scraping and APIs
-beautifulsoup4>=4.12.2          # HTML/XML parsing
-scrapy>=2.11.0                  # Web scraping framework
-
-# Database connectivity
-sqlalchemy>=2.0.23              # SQL toolkit and ORM
-psycopg2-binary>=2.9.9          # PostgreSQL adapter
-pymongo>=4.6.0                  # MongoDB driver
-redis>=5.0.0                    # Redis client
-
-# File processing
-openpyxl>=3.1.2                 # Excel file processing
-python-docx>=0.8.11             # Word document processing
-pillow>=10.1.0                  # Image processing
-
-# Configuration management
-python-dotenv>=1.0.0            # Environment variable management
-configparser>=6.0.0             # Configuration file parsing
-toml>=0.10.2                    # TOML file support
-
-# Logging and monitoring
-loguru>=0.7.2                   # Advanced logging
-prometheus-client>=0.19.0       # Prometheus metrics client
-structlog>=24.1.0               # Structured logging
-
-# Network and system utilities
-netaddr>=0.9.0                  # Network address manipulation
-paramiko>=3.4.0                 # SSH client
-fabric>=3.2.2                   # Remote execution and deployment
-
-# Cryptography and security
-cryptography>=42.0.0            # Cryptographic recipes
-bcrypt>=4.1.0                   # Password hashing
-pyotp>=2.9.0                    # OTP generation and validation
-
-# Documentation generation
-sphinx>=7.2.6                   # Documentation generator
-sphinx-rtd-theme>=2.0.0         # Read the Docs theme
-
-# Web frameworks (updated for security)
-Flask>=3.0.0
-prometheus-client>=0.19.0
-Werkzeug>=3.0.0
-gunicorn>=21.2.0
-flask-cors>=4.0.0
+# Application runtime shared by the Flask-based labs (lab_01, lab_02, lab_05, lab_08)
+Flask>=3.0.3
+Werkzeug>=3.0.3
+gunicorn>=22.0.0
+flask-cors>=5.0.0
+prometheus-client>=0.20.0

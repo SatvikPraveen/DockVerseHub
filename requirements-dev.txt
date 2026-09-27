@@ -1,0 +1,20 @@
+# Location: ./requirements-dev.txt
+#
+# DockVerseHub - development, test and quality tooling.
+#   pip install -r requirements.txt -r requirements-dev.txt
+-r requirements.txt
+
+# Test framework (tests/ and research/tests/)
+pytest>=8.3.0
+pytest-cov>=5.0.0
+
+# Linting / formatting (configured in pyproject.toml)
+ruff>=0.6.0
+black>=24.8.0
+mypy>=1.11.0
+
+# Security analysis of Python sources
+bandit>=1.7.9
+
+# Optional: figure generation for research/analysis (stdlib fallback exists)
+matplotlib>=3.9.0
