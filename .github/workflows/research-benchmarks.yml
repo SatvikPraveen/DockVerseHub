@@ -1,0 +1,106 @@
+# File: .github/workflows/research-benchmarks.yml
+#
+# Runs the research harness unit tests, validates experiment definitions,
+# and executes the cheap "ci-smoke" experiments on a hosted runner.
+#
+# CI numbers detect breakage (a variant that no longer builds or starts,
+# an effect that flips sign). They are NOT citable measurements: hosted
+# runners are shared and virtualised. Citable runs are produced on a
+# dedicated host and committed under research/results/.
+name: Research Benchmarks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "research/**"
+      - ".github/workflows/research-benchmarks.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "research/**"
+  schedule:
+    - cron: "0 4 * * 1"   # weekly, Monday 04:00 UTC
+  workflow_dispatch:
+    inputs:
+      repetitions:
+        description: "Recorded repetitions per variant"
+        default: "2"
+        required: false
+      experiments:
+        description: "Space-separated experiment ids (empty = all tagged ci-smoke)"
+        default: ""
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  DOCKER_BUILDKIT: 1
+  PYTHONDONTWRITEBYTECODE: 1
+
+jobs:
+  unit-tests:
+    name: Harness unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test tooling
+        run: python -m pip install --quiet pytest ruff black
+      - name: Lint
+        run: |
+          ruff check research tests
+          black --check research tests
+      - name: Unit tests (no Docker)
+        run: pytest research/tests tests -q
+      - name: Validate experiment definitions
+        run: python -m research.harness validate
+
+  smoke-benchmarks:
+    name: Smoke benchmarks (${{ matrix.experiment }})
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        experiment:
+          - exp01_base_image_footprint
+          - exp02_layer_cache_effectiveness
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: docker/setup-buildx-action@v3
+        with:
+          install: true
+      - name: Docker environment
+        run: |
+          docker version
+          docker buildx version
+      - name: Run experiment
+        run: |
+          reps="${{ github.event.inputs.repetitions || '2' }}"
+          python -m research.harness run "${{ matrix.experiment }}" \
+            --repetitions "$reps" --warmup 1 \
+            --results-dir ci-results --run-id "gh-${{ github.run_id }}" --strict
+      - name: Publish report to job summary
+        if: always()
+        run: |
+          report=$(ls ci-results/${{ matrix.experiment }}/*/report.md 2>/dev/null | head -1)
+          if [ -n "$report" ]; then
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No report produced" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-${{ matrix.experiment }}-${{ github.run_id }}
+          path: ci-results/
+          retention-days: 90

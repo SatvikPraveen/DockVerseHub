@@ -449,3 +449,40 @@ cd: build-all security-scan ## CD pipeline target
 
 # Suppress output for some commands
 .SILENT: help version
+# Research harness
+# ================
+
+.PHONY: test-unit
+test-unit: ## Run pytest suites (harness + repository invariants, no Docker needed)
+	@echo "$(YELLOW)Running unit tests...$(NC)"
+	@$(PYTHON) -m pytest -q
+	@echo "$(GREEN)✓ Unit tests passed$(NC)"
+
+.PHONY: lint-python
+lint-python: ## Lint and format-check research/ and tests/ with ruff + black
+	@$(PYTHON) -m ruff check research tests
+	@$(PYTHON) -m black --check research tests
+	@echo "$(GREEN)✓ Python lint clean$(NC)"
+
+.PHONY: research-list
+research-list: ## List research experiments
+	@$(PYTHON) -m research.harness list
+
+.PHONY: research-validate
+research-validate: ## Validate experiment definitions and fixture paths
+	@$(PYTHON) -m research.harness validate
+
+.PHONY: research-run
+research-run: ## Run all research experiments at full repetitions (EXP=<id> to pick one)
+	@echo "$(CYAN)Running research experiments...$(NC)"
+	@$(PYTHON) -m research.harness run $(EXP)
+	@echo "$(GREEN)✓ Results written under research/results/$(NC)"
+
+.PHONY: research-smoke
+research-smoke: ## Quick 2-repetition run of the ci-smoke experiments
+	@$(PYTHON) -m research.harness run --tag ci-smoke --repetitions 2 --warmup 1
+
+.PHONY: research-report
+research-report: ## Regenerate summaries/reports for every committed run and rebuild the index
+	@for d in research/results/*/*/; do [ -f "$$d/raw.jsonl" ] && $(PYTHON) -m research.harness report "$$d"; done; true
+	@$(PYTHON) -m research.harness index
