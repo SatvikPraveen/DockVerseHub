@@ -1,0 +1,65 @@
+# File Location: concepts/06_security/Dockerfile.rootless
+#
+# Non-root container implementation.
+#
+# Principles demonstrated:
+#   1. A dedicated, unprivileged user with a FIXED numeric UID/GID so that
+#      Kubernetes `runAsUser`/`runAsNonRoot` policies and host bind-mount
+#      permissions are predictable across rebuilds.
+#   2. Application files are owned by root and only READABLE by the app user;
+#      the process cannot modify its own code (defence against tampering).
+#   3. A single writable directory (/data) for runtime state, so the image can
+#      run with `--read-only` plus a tmpfs/volume on /data.
+#   4. No setuid/setgid binaries left in the image.
+#   5. An unprivileged port (>1024) so no capability is needed to bind.
+#   6. HEALTHCHECK implemented with the interpreter already present (slim
+#      images do not ship curl).
+#
+# Run:
+#   docker build -f Dockerfile.rootless -t rootless-demo .
+#   docker run --rm --read-only --tmpfs /tmp --tmpfs /data:rw,uid=10001,gid=10001,mode=0750 \
+#       --cap-drop ALL --security-opt no-new-privileges -p 8080:8080 rootless-demo
+#
+# Verify:
+#   docker exec <id> id            -> uid=10001(app) gid=10001(app)
+#   docker exec <id> touch /app/x  -> Permission denied
+
+FROM python:3.11-slim
+
+ARG APP_UID=10001
+ARG APP_GID=10001
+
+# Create the group/user without a home directory, shell or password.
+RUN groupadd --gid "${APP_GID}" app \
+ && useradd --uid "${APP_UID}" --gid "${APP_GID}" \
+            --no-create-home --shell /usr/sbin/nologin app \
+ # Remove setuid/setgid bits from every binary in the image.
+ && find / -xdev -perm /6000 -type f -exec chmod a-s {} + 2>/dev/null || true
+
+WORKDIR /app
+
+# Install dependencies as root (needs write access to site-packages), then
+# never write to the filesystem again as root.
+COPY --chown=root:root requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Application code: owned by root, world-readable, NOT writable by `app`.
+COPY --chown=root:root --chmod=0644 app.py .
+
+# The only directory the application may write to.
+RUN mkdir -p /data && chown "${APP_UID}:${APP_GID}" /data && chmod 0750 /data
+VOLUME ["/data"]
+
+# Switch to the unprivileged user by numeric id (works even if /etc/passwd is
+# absent at runtime, e.g. with distroless bases).
+USER ${APP_UID}:${APP_GID}
+
+ENV PORT=8080 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/health', timeout=2).status == 200 else 1)" || exit 1
+
+CMD ["python", "app.py"]

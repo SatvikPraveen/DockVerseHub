@@ -357,8 +357,8 @@ sudo chown -R $USER:$USER volume_directory
 ### Documentation
 - [Docker Official Documentation](https://docs.docker.com/)
 - [Docker Compose Reference](https://docs.docker.com/compose/)
-- [Best Practices](docs/quick-reference/dockerfile-best-practices.md)
-- [Troubleshooting Guide](docs/troubleshooting.md)
+- [Best Practices](quick-reference/dockerfile-best-practices.md)
+- [Troubleshooting Guide](troubleshooting.md)
 
 ### In This Repository
 - `CHANGELOG.md` - Version history and updates

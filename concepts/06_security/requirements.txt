@@ -1,0 +1,4 @@
+# File Location: concepts/06_security/requirements.txt
+# The demo service uses only the standard library; this file exists so the
+# Dockerfiles can demonstrate the "install deps before copying source" layer
+# ordering without pulling anything from the network.

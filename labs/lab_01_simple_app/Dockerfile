@@ -27,9 +27,11 @@ USER appuser
 # Expose port 5000
 EXPOSE 5000
 
-# Add health check
+# Add health check.
+# python:3.11-slim does not ship curl, so probe with the interpreter that is
+# already in the image; this keeps the image small and the check working.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:5000/health || exit 1
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:5000/health', timeout=2).status == 200 else 1)" || exit 1
 
 # Set environment variables
 ENV FLASK_APP=app.py
