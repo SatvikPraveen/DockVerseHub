@@ -62,6 +62,18 @@ After a one-line edit to `app.py`, deps-first rebuilt 80% faster, a ratio of 5.0
 
 The mean fell by 14%, with a medium effect: d = −0.67 and Cliff's δ = −0.71. However, Welch p = 0.24 and permutation p = 0.24, so seven repetitions cannot tell the effect apart from noise. The fixture has only seven small pure-Python wheels and the network was fast, so the download term the cache mount removes is small. The methodology predicted exactly this. The next step is to raise the repetitions and add a fixture with heavy dependencies such as numpy or pandas before drawing a conclusion.
 
+## Cross-platform check (CI, Linux x86-64)
+
+GitHub Actions run `36299030634` (commit `61a6713`) executed the two `ci-smoke` experiments on a hosted runner with Linux 6.17 on x86-64 (Azure). It used 2 repetitions, so it serves as a direction-and-magnitude check, not a citable measurement.
+
+| Result | macOS arm64 (this run) | Linux x86-64 (CI) |
+|---|---:|---:|
+| RQ2: deps-first incremental rebuild vs source-first | −80.1% | −79.4% |
+| RQ1: slim / alpine / distroless image size vs full | −88.0 / −94.2 / −94.8% | −88.2 / −94.5 / −94.8% |
+| RQ1: distroless time-to-ready vs full | +72.2% | +71.9% |
+
+The ratios agree closely across CPU architectures, operating systems and virtualisation layers. That is the transferability METHODOLOGY.md predicts for ratios, and it strengthens the RQ1 size, RQ2 and distroless cold-start conclusions. The small slim and Alpine cold-start differences remain inconclusive on both platforms.
+
 ## Threats specific to this run
 
 - Docker Desktop on macOS adds a virtualisation layer and a shared page cache. On native Linux the cold-start numbers will be lower and may rank differently.
