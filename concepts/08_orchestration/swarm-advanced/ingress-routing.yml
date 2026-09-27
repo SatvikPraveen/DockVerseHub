@@ -116,29 +116,29 @@ services:
     command: |
       sh -c 'pip install flask &&
              cat > /app.py << "EOF"
-from flask import Flask, jsonify
-import os
-app = Flask(__name__)
-version = os.getenv("API_VERSION", "v1")
+      from flask import Flask, jsonify
+      import os
+      app = Flask(__name__)
+      version = os.getenv("API_VERSION", "v1")
 
-@app.route("/health")
-def health():
-    return jsonify({"status": "healthy", "version": version})
+      @app.route("/health")
+      def health():
+          return jsonify({"status": "healthy", "version": version})
 
-@app.route("/api/users")
-def users():
-    return jsonify({
-        "users": [{"id": 1, "name": "John"}, {"id": 2, "name": "Jane"}],
-        "version": version
-    })
+      @app.route("/api/users")
+      def users():
+          return jsonify({
+              "users": [{"id": 1, "name": "John"}, {"id": 2, "name": "Jane"}],
+              "version": version
+          })
 
-@app.route("/api/data")
-def data():
-    return jsonify({"data": "legacy format", "version": version})
+      @app.route("/api/data")
+      def data():
+          return jsonify({"data": "legacy format", "version": version})
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
-EOF
+      if __name__ == "__main__":
+          app.run(host="0.0.0.0", port=8080)
+      EOF
              python /app.py'
     deploy:
       replicas: 3
@@ -178,40 +178,40 @@ EOF
     command: |
       sh -c 'pip install flask &&
              cat > /app.py << "EOF"
-from flask import Flask, jsonify
-import os
-app = Flask(__name__)
-version = os.getenv("API_VERSION", "v2")
+      from flask import Flask, jsonify
+      import os
+      app = Flask(__name__)
+      version = os.getenv("API_VERSION", "v2")
 
-@app.route("/health")
-def health():
-    return jsonify({"status": "healthy", "version": version})
+      @app.route("/health")
+      def health():
+          return jsonify({"status": "healthy", "version": version})
 
-@app.route("/api/users")
-def users():
-    return jsonify({
-        "users": [
-            {"id": 1, "name": "John", "email": "john@example.com"},
-            {"id": 2, "name": "Jane", "email": "jane@example.com"}
-        ],
-        "version": version,
-        "features": ["enhanced_data", "email_support"]
-    })
+      @app.route("/api/users")
+      def users():
+          return jsonify({
+              "users": [
+                  {"id": 1, "name": "John", "email": "john@example.com"},
+                  {"id": 2, "name": "Jane", "email": "jane@example.com"}
+              ],
+              "version": version,
+              "features": ["enhanced_data", "email_support"]
+          })
 
-@app.route("/api/data")
-def data():
-    return jsonify({
-        "data": {
-            "format": "enhanced",
-            "timestamp": "2023-01-01T00:00:00Z",
-            "metadata": {"source": "api-v2"}
-        },
-        "version": version
-    })
+      @app.route("/api/data")
+      def data():
+          return jsonify({
+              "data": {
+                  "format": "enhanced",
+                  "timestamp": "2023-01-01T00:00:00Z",
+                  "metadata": {"source": "api-v2"}
+              },
+              "version": version
+          })
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
-EOF
+      if __name__ == "__main__":
+          app.run(host="0.0.0.0", port=8080)
+      EOF
              python /app.py'
     deploy:
       replicas: 2
@@ -322,41 +322,41 @@ EOF
     command: |
       sh -c 'pip install websockets asyncio &&
              cat > /ws_server.py << "EOF"
-import asyncio
-import websockets
-import json
-from datetime import datetime
+      import asyncio
+      import websockets
+      import json
+      from datetime import datetime
 
-connected = set()
+      connected = set()
 
-async def handler(websocket, path):
-    connected.add(websocket)
-    try:
-        await websocket.send(json.dumps({
-            "type": "welcome",
-            "timestamp": datetime.now().isoformat()
-        }))
-        async for message in websocket:
-            # Broadcast to all connected clients
-            data = json.loads(message)
-            response = {
-                "type": "broadcast",
-                "data": data,
-                "timestamp": datetime.now().isoformat()
-            }
-            await asyncio.gather(
-                *[client.send(json.dumps(response)) for client in connected],
-                return_exceptions=True
-            )
-    except websockets.exceptions.ConnectionClosed:
-        pass
-    finally:
-        connected.remove(websocket)
+      async def handler(websocket, path):
+          connected.add(websocket)
+          try:
+              await websocket.send(json.dumps({
+                  "type": "welcome",
+                  "timestamp": datetime.now().isoformat()
+              }))
+              async for message in websocket:
+                  # Broadcast to all connected clients
+                  data = json.loads(message)
+                  response = {
+                      "type": "broadcast",
+                      "data": data,
+                      "timestamp": datetime.now().isoformat()
+                  }
+                  await asyncio.gather(
+                      *[client.send(json.dumps(response)) for client in connected],
+                      return_exceptions=True
+                  )
+          except websockets.exceptions.ConnectionClosed:
+              pass
+          finally:
+              connected.remove(websocket)
 
-start_server = websockets.serve(handler, "0.0.0.0", 8080)
-asyncio.get_event_loop().run_until_complete(start_server)
-asyncio.get_event_loop().run_forever()
-EOF
+      start_server = websockets.serve(handler, "0.0.0.0", 8080)
+      asyncio.get_event_loop().run_until_complete(start_server)
+      asyncio.get_event_loop().run_forever()
+      EOF
              python /ws_server.py'
     deploy:
       replicas: 2
@@ -385,29 +385,29 @@ EOF
     command: |
       sh -c 'pip install grpcio grpcio-tools &&
              python -c "
-import grpc
-from concurrent import futures
-import time
+      import grpc
+      from concurrent import futures
+      import time
 
-class GreeterServicer:
-    def SayHello(self, request, context):
-        return HelloReply(message=f\"Hello {request.name}!\")
+      class GreeterServicer:
+          def SayHello(self, request, context):
+              return HelloReply(message=f\"Hello {request.name}!\")
 
-def serve():
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    # Add servicer here
-    server.add_insecure_port(\"[::]:50051\")
-    server.start()
-    print(\"gRPC server started on port 50051\")
-    try:
-        while True:
-            time.sleep(86400)
-    except KeyboardInterrupt:
-        server.stop(0)
+      def serve():
+          server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+          # Add servicer here
+          server.add_insecure_port(\"[::]:50051\")
+          server.start()
+          print(\"gRPC server started on port 50051\")
+          try:
+              while True:
+                  time.sleep(86400)
+          except KeyboardInterrupt:
+              server.stop(0)
 
-if __name__ == \"__main__\":
-    serve()
-"'
+      if __name__ == \"__main__\":
+          serve()
+      "'
     deploy:
       replicas: 2
       placement:

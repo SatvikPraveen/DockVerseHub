@@ -57,47 +57,47 @@ services:
     command: |
       sh -c 'pip install --no-cache-dir requests &&
              cat > /app.py << "EOF"
-import time
-import logging
-import logging.handlers
-import random
-import json
-from datetime import datetime
+      import time
+      import logging
+      import logging.handlers
+      import random
+      import json
+      from datetime import datetime
 
-# Configure syslog handler
-syslog_handler = logging.handlers.SysLogHandler(address=("syslog-server", 514))
-syslog_handler.setFormatter(logging.Formatter("%(name)s: %(levelname)s %(message)s"))
+      # Configure syslog handler
+      syslog_handler = logging.handlers.SysLogHandler(address=("syslog-server", 514))
+      syslog_handler.setFormatter(logging.Formatter("%(name)s: %(levelname)s %(message)s"))
 
-logger = logging.getLogger("python-syslog-app")
-logger.setLevel(logging.INFO)
-logger.addHandler(syslog_handler)
+      logger = logging.getLogger("python-syslog-app")
+      logger.setLevel(logging.INFO)
+      logger.addHandler(syslog_handler)
 
-def generate_logs():
-    events = [
-        {"event": "user_login", "user_id": random.randint(1, 100), "status": "success"},
-        {"event": "api_call", "endpoint": "/api/data", "response_time": random.randint(10, 500)},
-        {"event": "database_query", "duration": random.randint(5, 200)},
-        {"event": "error", "error_type": "ConnectionError", "severity": "high"}
-    ]
-    
-    while True:
-        event = random.choice(events)
-        log_message = json.dumps({
-            "timestamp": datetime.utcnow().isoformat(),
-            **event
-        })
-        
-        if event.get("event") == "error":
-            logger.error(log_message)
-        else:
-            logger.info(log_message)
-        
-        time.sleep(random.randint(2, 8))
+      def generate_logs():
+          events = [
+              {"event": "user_login", "user_id": random.randint(1, 100), "status": "success"},
+              {"event": "api_call", "endpoint": "/api/data", "response_time": random.randint(10, 500)},
+              {"event": "database_query", "duration": random.randint(5, 200)},
+              {"event": "error", "error_type": "ConnectionError", "severity": "high"}
+          ]
 
-if __name__ == "__main__":
-    logger.info("Python syslog app starting...")
-    generate_logs()
-EOF
+          while True:
+              event = random.choice(events)
+              log_message = json.dumps({
+                  "timestamp": datetime.utcnow().isoformat(),
+                  **event
+              })
+
+              if event.get("event") == "error":
+                  logger.error(log_message)
+              else:
+                  logger.info(log_message)
+
+              time.sleep(random.randint(2, 8))
+
+      if __name__ == "__main__":
+          logger.info("Python syslog app starting...")
+          generate_logs()
+      EOF
              python /app.py'
     depends_on:
       - syslog-server

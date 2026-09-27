@@ -105,20 +105,20 @@ services:
     command: |
       sh -c 'pip install flask &&
              cat > /app.py << "EOF"
-from flask import Flask, jsonify
-app = Flask(__name__)
+      from flask import Flask, jsonify
+      app = Flask(__name__)
 
-@app.route("/health")
-def health():
-    return jsonify({"status": "healthy"})
+      @app.route("/health")
+      def health():
+          return jsonify({"status": "healthy"})
 
-@app.route("/api/data")
-def data():
-    return jsonify({"message": "API response"})
+      @app.route("/api/data")
+      def data():
+          return jsonify({"message": "API response"})
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
-EOF
+      if __name__ == "__main__":
+          app.run(host="0.0.0.0", port=8080)
+      EOF
              python /app.py'
     deploy:
       replicas: 4
@@ -174,10 +174,11 @@ EOF
         reservations:
           cpus: '2.0'
           memory: 2G
-        generic_resources:
-          - discrete_resource_spec:
-              kind: 'NVIDIA-GPU'
-              value: 1
+          # GPU reservation (compose spec: generic_resources lives under reservations)
+          generic_resources:
+            - discrete_resource_spec:
+                kind: 'NVIDIA-GPU'
+                value: 1
     networks:
       - ml-network
 

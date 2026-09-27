@@ -67,39 +67,39 @@ services:
     command: |
       sh -c 'pip install flask redis psycopg2-binary &&
              cat > /app/app.py << "EOF"
-from flask import Flask, jsonify
-import os
-import redis
-import json
+      from flask import Flask, jsonify
+      import os
+      import redis
+      import json
 
-app = Flask(__name__)
+      app = Flask(__name__)
 
-# Read secrets
-with open("/run/secrets/db_password", "r") as f:
-    db_pass = f.read().strip()
+      # Read secrets
+      with open("/run/secrets/db_password", "r") as f:
+          db_pass = f.read().strip()
 
-with open("/run/secrets/api_key", "r") as f:
-    api_key = f.read().strip()
+      with open("/run/secrets/api_key", "r") as f:
+          api_key = f.read().strip()
 
-# Read config
-with open("/app/config.json", "r") as f:
-    config = json.load(f)
+      # Read config
+      with open("/app/config.json", "r") as f:
+          config = json.load(f)
 
-@app.route("/health")
-def health():
-    return jsonify({"status": "healthy", "service": "api"})
+      @app.route("/health")
+      def health():
+          return jsonify({"status": "healthy", "service": "api"})
 
-@app.route("/api/info")
-def info():
-    return jsonify({
-        "service": "api",
-        "version": config.get("version", "1.0.0"),
-        "environment": config.get("environment", "development")
-    })
+      @app.route("/api/info")
+      def info():
+          return jsonify({
+              "service": "api",
+              "version": config.get("version", "1.0.0"),
+              "environment": config.get("environment", "development")
+          })
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
-EOF
+      if __name__ == "__main__":
+          app.run(host="0.0.0.0", port=8080)
+      EOF
              python /app/app.py'
     deploy:
       replicas: 2

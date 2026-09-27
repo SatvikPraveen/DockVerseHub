@@ -48,68 +48,68 @@ services:
       sh -c '
       pip install psutil numpy &&
       cat > compute.py << "EOF"
-import time
-import psutil
-import numpy as np
-import multiprocessing as mp
-from concurrent.futures import ProcessPoolExecutor
-import os
+      import time
+      import psutil
+      import numpy as np
+      import multiprocessing as mp
+      from concurrent.futures import ProcessPoolExecutor
+      import os
 
-def cpu_intensive_task(n):
-    """CPU-intensive matrix multiplication"""
-    print(f"Process {os.getpid()}: Starting task {n}")
-    
-    # Generate random matrices
-    size = 500
-    a = np.random.rand(size, size)
-    b = np.random.rand(size, size)
-    
-    # Perform matrix multiplication
-    result = np.dot(a, b)
-    
-    print(f"Process {os.getpid()}: Completed task {n}")
-    return np.sum(result)
+      def cpu_intensive_task(n):
+          """CPU-intensive matrix multiplication"""
+          print(f"Process {os.getpid()}: Starting task {n}")
 
-def monitor_cpu():
-    """Monitor CPU usage"""
-    cpu_count = psutil.cpu_count()
-    cpu_usage = psutil.cpu_percent(interval=1)
-    load_avg = psutil.getloadavg()
-    
-    print(f"CPU cores: {cpu_count}")
-    print(f"CPU usage: {cpu_usage}%")
-    print(f"Load average: {load_avg}")
+          # Generate random matrices
+          size = 500
+          a = np.random.rand(size, size)
+          b = np.random.rand(size, size)
 
-def main():
-    print("Starting CPU-intensive compute service...")
-    print("Available CPU cores:", mp.cpu_count())
-    
-    # Monitor initial state
-    monitor_cpu()
-    
-    # Run CPU-intensive tasks
-    num_tasks = 8
-    max_workers = 2  # Limited by CPU constraints
-    
-    print(f"\\nRunning {num_tasks} tasks with {max_workers} workers...")
-    
-    start_time = time.time()
-    
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(cpu_intensive_task, i) for i in range(num_tasks)]
-        results = [future.result() for future in futures]
-    
-    end_time = time.time()
-    
-    print(f"\\nCompleted {num_tasks} tasks in {end_time - start_time:.2f} seconds")
-    print(f"Results: {len(results)} tasks completed")
-    
-    # Final CPU monitoring
-    monitor_cpu()
+          # Perform matrix multiplication
+          result = np.dot(a, b)
 
-if __name__ == "__main__":
-    main()
-EOF
+          print(f"Process {os.getpid()}: Completed task {n}")
+          return np.sum(result)
+
+      def monitor_cpu():
+          """Monitor CPU usage"""
+          cpu_count = psutil.cpu_count()
+          cpu_usage = psutil.cpu_percent(interval=1)
+          load_avg = psutil.getloadavg()
+
+          print(f"CPU cores: {cpu_count}")
+          print(f"CPU usage: {cpu_usage}%")
+          print(f"Load average: {load_avg}")
+
+      def main():
+          print("Starting CPU-intensive compute service...")
+          print("Available CPU cores:", mp.cpu_count())
+
+          # Monitor initial state
+          monitor_cpu()
+
+          # Run CPU-intensive tasks
+          num_tasks = 8
+          max_workers = 2  # Limited by CPU constraints
+
+          print(f"\\nRunning {num_tasks} tasks with {max_workers} workers...")
+
+          start_time = time.time()
+
+          with ProcessPoolExecutor(max_workers=max_workers) as executor:
+              futures = [executor.submit(cpu_intensive_task, i) for i in range(num_tasks)]
+              results = [future.result() for future in futures]
+
+          end_time = time.time()
+
+          print(f"\\nCompleted {num_tasks} tasks in {end_time - start_time:.2f} seconds")
+          print(f"Results: {len(results)} tasks completed")
+
+          # Final CPU monitoring
+          monitor_cpu()
+
+      if __name__ == "__main__":
+          main()
+      EOF
       python compute.py
       '
 
@@ -182,12 +182,12 @@ EOF
       echo "Batch processor with low CPU priority..."
       
       for i in $(seq 1 10); do
-        echo "Batch job $i/10 starting $(date)"
+        echo "Batch job $$i/10 starting $(date)"
         
         # Simulate batch processing work
         stress-ng --cpu 1 --cpu-load 80 --timeout 30s --quiet
         
-        echo "Batch job $i/10 completed $(date)"
+        echo "Batch job $$i/10 completed $(date)"
         sleep 5
       done
       
@@ -209,62 +209,62 @@ EOF
     command: |
       sh -c '
       cat > server.js << "EOF"
-const http = require("http");
-const cluster = require("cluster");
-const os = require("os");
-const crypto = require("crypto");
+      const http = require("http");
+      const cluster = require("cluster");
+      const os = require("os");
+      const crypto = require("crypto");
 
-if (cluster.isMaster) {
-    const numCPUs = os.cpus().length;
-    const maxWorkers = Math.min(numCPUs, 2); // Limit workers based on CPU constraints
-    
-    console.log(`Master process ${process.pid} starting...`);
-    console.log(`Available CPUs: ${numCPUs}, Starting ${maxWorkers} workers`);
-    
-    // Fork workers
-    for (let i = 0; i < maxWorkers; i++) {
-        cluster.fork();
-    }
-    
-    cluster.on("exit", (worker, code, signal) => {
-        console.log(`Worker ${worker.process.pid} died`);
-        cluster.fork(); // Restart worker
-    });
-    
-} else {
-    // Worker process
-    const server = http.createServer((req, res) => {
-        if (req.url === "/health") {
-            res.writeHead(200, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ status: "healthy", worker: process.pid }));
-        } else if (req.url === "/cpu-task") {
-            // CPU-intensive task
-            const start = Date.now();
-            
-            // Perform some CPU work
-            for (let i = 0; i < 100000; i++) {
-                crypto.createHash("sha256").update(String(i)).digest("hex");
-            }
-            
-            const duration = Date.now() - start;
-            
-            res.writeHead(200, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ 
-                worker: process.pid, 
-                duration: duration + "ms",
-                cpuUsage: process.cpuUsage()
-            }));
-        } else {
-            res.writeHead(404);
-            res.end("Not found");
-        }
-    });
-    
-    server.listen(3000, () => {
-        console.log(`Worker ${process.pid} listening on port 3000`);
-    });
-}
-EOF
+      if (cluster.isMaster) {
+          const numCPUs = os.cpus().length;
+          const maxWorkers = Math.min(numCPUs, 2); // Limit workers based on CPU constraints
+
+          console.log(`Master process $${process.pid} starting...`);
+          console.log(`Available CPUs: $${numCPUs}, Starting $${maxWorkers} workers`);
+
+          // Fork workers
+          for (let i = 0; i < maxWorkers; i++) {
+              cluster.fork();
+          }
+
+          cluster.on("exit", (worker, code, signal) => {
+              console.log(`Worker $${worker.process.pid} died`);
+              cluster.fork(); // Restart worker
+          });
+
+      } else {
+          // Worker process
+          const server = http.createServer((req, res) => {
+              if (req.url === "/health") {
+                  res.writeHead(200, { "Content-Type": "application/json" });
+                  res.end(JSON.stringify({ status: "healthy", worker: process.pid }));
+              } else if (req.url === "/cpu-task") {
+                  // CPU-intensive task
+                  const start = Date.now();
+
+                  // Perform some CPU work
+                  for (let i = 0; i < 100000; i++) {
+                      crypto.createHash("sha256").update(String(i)).digest("hex");
+                  }
+
+                  const duration = Date.now() - start;
+
+                  res.writeHead(200, { "Content-Type": "application/json" });
+                  res.end(JSON.stringify({ 
+                      worker: process.pid, 
+                      duration: duration + "ms",
+                      cpuUsage: process.cpuUsage()
+                  }));
+              } else {
+                  res.writeHead(404);
+                  res.end("Not found");
+              }
+          });
+
+          server.listen(3000, () => {
+              console.log(`Worker $${process.pid} listening on port 3000`);
+          });
+      }
+      EOF
       node server.js
       '
 
@@ -290,7 +290,7 @@ EOF
         echo "\\nContainer CPU Usage:"
         timeout 5 sh -c "
           while read line; do
-            echo \"$line\"
+            echo \"$$line\"
           done < <(
             wget -qO- --timeout=3 http://localhost/v1.41/containers/json 2>/dev/null | 
             head -10 || echo \"Docker API not accessible\"

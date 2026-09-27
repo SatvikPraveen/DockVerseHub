@@ -34,37 +34,37 @@ services:
       sh -c '
       pip install flask psutil &&
       cat > app.py << "EOF"
-import flask
-import psutil
-import gc
-from flask import jsonify
+      import flask
+      import psutil
+      import gc
+      from flask import jsonify
 
-app = flask.Flask(__name__)
+      app = flask.Flask(__name__)
 
-@app.route("/health")
-def health():
-    return jsonify({"status": "healthy"})
+      @app.route("/health")
+      def health():
+          return jsonify({"status": "healthy"})
 
-@app.route("/memory")
-def memory_info():
-    process = psutil.Process()
-    memory_info = process.memory_info()
-    
-    return jsonify({
-        "rss": memory_info.rss,
-        "vms": memory_info.vms,
-        "percent": process.memory_percent(),
-        "available": psutil.virtual_memory().available
-    })
+      @app.route("/memory")
+      def memory_info():
+          process = psutil.Process()
+          memory_info = process.memory_info()
 
-@app.route("/gc")
-def garbage_collect():
-    gc.collect()
-    return jsonify({"message": "Garbage collection completed"})
+          return jsonify({
+              "rss": memory_info.rss,
+              "vms": memory_info.vms,
+              "percent": process.memory_percent(),
+              "available": psutil.virtual_memory().available
+          })
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
-EOF
+      @app.route("/gc")
+      def garbage_collect():
+          gc.collect()
+          return jsonify({"message": "Garbage collection completed"})
+
+      if __name__ == "__main__":
+          app.run(host="0.0.0.0", port=8080)
+      EOF
       python app.py
       '
 
@@ -85,63 +85,63 @@ EOF
       sh -c '
       pip install psutil numpy &&
       cat > processor.py << "EOF"
-import time
-import numpy as np
-import psutil
-import gc
-import os
+      import time
+      import numpy as np
+      import psutil
+      import gc
+      import os
 
-def monitor_memory():
-    process = psutil.Process()
-    memory_mb = process.memory_info().rss / 1024 / 1024
-    print(f"Memory usage: {memory_mb:.2f} MB")
-    return memory_mb
+      def monitor_memory():
+          process = psutil.Process()
+          memory_mb = process.memory_info().rss / 1024 / 1024
+          print(f"Memory usage: {memory_mb:.2f} MB")
+          return memory_mb
 
-def process_data_batch(size):
-    print(f"Processing batch of size {size}")
-    
-    # Simulate memory-intensive processing
-    data = np.random.rand(size, 1000)
-    result = np.mean(data, axis=1)
-    
-    # Force memory cleanup
-    del data
-    gc.collect()
-    
-    return len(result)
+      def process_data_batch(size):
+          print(f"Processing batch of size {size}")
 
-def main():
-    print("Starting memory-controlled data processor...")
-    batch_sizes = [1000, 5000, 10000, 20000]
-    
-    for batch_size in batch_sizes:
-        print(f"\\n--- Processing batch size {batch_size} ---")
-        
-        memory_before = monitor_memory()
-        
-        try:
-            processed = process_data_batch(batch_size)
-            print(f"Processed {processed} items")
-            
-            memory_after = monitor_memory()
-            print(f"Memory delta: {memory_after - memory_before:.2f} MB")
-            
-            # Check memory limits
-            if memory_after > 1800:  # 1.8GB warning threshold
-                print("WARNING: Approaching memory limit!")
-                gc.collect()
-                
-        except MemoryError:
-            print("ERROR: Out of memory!")
-            gc.collect()
-        
-        time.sleep(5)
-    
-    print("Data processing completed")
+          # Simulate memory-intensive processing
+          data = np.random.rand(size, 1000)
+          result = np.mean(data, axis=1)
 
-if __name__ == "__main__":
-    main()
-EOF
+          # Force memory cleanup
+          del data
+          gc.collect()
+
+          return len(result)
+
+      def main():
+          print("Starting memory-controlled data processor...")
+          batch_sizes = [1000, 5000, 10000, 20000]
+
+          for batch_size in batch_sizes:
+              print(f"\\n--- Processing batch size {batch_size} ---")
+
+              memory_before = monitor_memory()
+
+              try:
+                  processed = process_data_batch(batch_size)
+                  print(f"Processed {processed} items")
+
+                  memory_after = monitor_memory()
+                  print(f"Memory delta: {memory_after - memory_before:.2f} MB")
+
+                  # Check memory limits
+                  if memory_after > 1800:  # 1.8GB warning threshold
+                      print("WARNING: Approaching memory limit!")
+                      gc.collect()
+
+              except MemoryError:
+                  print("ERROR: Out of memory!")
+                  gc.collect()
+
+              time.sleep(5)
+
+          print("Data processing completed")
+
+      if __name__ == "__main__":
+          main()
+      EOF
       python processor.py
       '
 
@@ -206,40 +206,40 @@ EOF
     command: |
       sh -c '
       cat > MemoryTest.java << "EOF"
-import java.lang.management.ManagementFactory;
-import java.lang.management.MemoryMXBean;
-import java.util.ArrayList;
-import java.util.List;
+      import java.lang.management.ManagementFactory;
+      import java.lang.management.MemoryMXBean;
+      import java.util.ArrayList;
+      import java.util.List;
 
-public class MemoryTest {
-    public static void main(String[] args) throws InterruptedException {
-        MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
-        List<byte[]> memory = new ArrayList<>();
-        
-        System.out.println("Starting JVM memory test...");
-        
-        for (int i = 0; i < 100; i++) {
-            // Allocate 1MB
-            memory.add(new byte[1024 * 1024]);
-            
-            long heapUsed = memoryBean.getHeapMemoryUsage().getUsed();
-            long heapMax = memoryBean.getHeapMemoryUsage().getMax();
-            
-            System.out.printf("Iteration %d: Heap used: %d MB / %d MB\\n", 
-                i, heapUsed / 1024 / 1024, heapMax / 1024 / 1024);
-            
-            if (i % 10 == 0 && i > 0) {
-                System.gc();
-                Thread.sleep(1000);
-            }
-        }
-        
-        System.out.println("Memory test completed");
-    }
-}
-EOF
+      public class MemoryTest {
+          public static void main(String[] args) throws InterruptedException {
+              MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
+              List<byte[]> memory = new ArrayList<>();
+
+              System.out.println("Starting JVM memory test...");
+
+              for (int i = 0; i < 100; i++) {
+                  // Allocate 1MB
+                  memory.add(new byte[1024 * 1024]);
+
+                  long heapUsed = memoryBean.getHeapMemoryUsage().getUsed();
+                  long heapMax = memoryBean.getHeapMemoryUsage().getMax();
+
+                  System.out.printf("Iteration %d: Heap used: %d MB / %d MB\\n", 
+                      i, heapUsed / 1024 / 1024, heapMax / 1024 / 1024);
+
+                  if (i % 10 == 0 && i > 0) {
+                      System.gc();
+                      Thread.sleep(1000);
+                  }
+              }
+
+              System.out.println("Memory test completed");
+          }
+      }
+      EOF
       javac MemoryTest.java
-      java $JAVA_OPTS MemoryTest
+      java $$JAVA_OPTS MemoryTest
       '
 
   # Example 7: Memory monitoring service
@@ -254,19 +254,19 @@ EOF
       
       monitor_container_memory() {
         local container=$1
-        local cgroup_path="/sys/fs/cgroup/memory/docker/$container"
+        local cgroup_path="/sys/fs/cgroup/memory/docker/$$container"
         
-        if [ -d "$cgroup_path" ]; then
-          local usage=$(cat $cgroup_path/memory.usage_in_bytes 2>/dev/null || echo 0)
-          local limit=$(cat $cgroup_path/memory.limit_in_bytes 2>/dev/null || echo 0)
+        if [ -d "$$cgroup_path" ]; then
+          local usage=$(cat $$cgroup_path/memory.usage_in_bytes 2>/dev/null || echo 0)
+          local limit=$(cat $$cgroup_path/memory.limit_in_bytes 2>/dev/null || echo 0)
           local usage_mb=$((usage / 1024 / 1024))
           local limit_mb=$((limit / 1024 / 1024))
           local percent=$((usage * 100 / limit))
           
-          echo "$container: ${usage_mb}MB / ${limit_mb}MB (${percent}%)"
+          echo "$$container: $${usage_mb}MB / $${limit_mb}MB ($${percent}%)"
           
-          if [ $percent -gt 90 ]; then
-            echo "WARNING: $container using >90% memory!"
+          if [ $$percent -gt 90 ]; then
+            echo "WARNING: $$container using >90% memory!"
           fi
         fi
       }
@@ -276,9 +276,9 @@ EOF
         
         # Monitor specific containers
         for container in web-basic api-memory data-processor postgres-memory redis-memory java-memory; do
-          container_id=$(docker ps -q -f name=$container 2>/dev/null)
-          if [ -n "$container_id" ]; then
-            monitor_container_memory $container_id
+          container_id=$(docker ps -q -f name=$$container 2>/dev/null)
+          if [ -n "$$container_id" ]; then
+            monitor_container_memory $$container_id
           fi
         done
         

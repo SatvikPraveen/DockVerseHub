@@ -95,101 +95,101 @@ services:
     command: |
       sh -c 'pip install --no-cache-dir requests pygelf &&
              cat > /app.py << "EOF"
-import time
-import json
-import random
-import logging
-from datetime import datetime
-from pygelf import GelfTcpHandler, GelfUdpHandler
+      import time
+      import json
+      import random
+      import logging
+      from datetime import datetime
+      from pygelf import GelfTcpHandler, GelfUdpHandler
 
-# Configure GELF handler for additional structured logging
-gelf_handler = GelfUdpHandler(host="graylog", port=12201)
-gelf_handler.setFormatter(logging.Formatter("%(message)s"))
+      # Configure GELF handler for additional structured logging
+      gelf_handler = GelfUdpHandler(host="graylog", port=12201)
+      gelf_handler.setFormatter(logging.Formatter("%(message)s"))
 
-logger = logging.getLogger("gelf-python-app")
-logger.setLevel(logging.INFO)
-logger.addHandler(gelf_handler)
+      logger = logging.getLogger("gelf-python-app")
+      logger.setLevel(logging.INFO)
+      logger.addHandler(gelf_handler)
 
-def generate_structured_logs():
-    """Generate structured logs with custom GELF fields"""
-    while True:
-        events = [
-            {
-                "event_type": "user_activity",
-                "action": random.choice(["login", "logout", "page_view", "button_click"]),
-                "user_id": random.randint(1000, 9999),
-                "session_id": f"sess_{random.randint(100000, 999999)}",
-                "ip_address": f"192.168.1.{random.randint(1, 254)}",
-                "user_agent": "Mozilla/5.0 (compatible; Demo-Client/1.0)",
-                "response_time_ms": random.randint(50, 2000)
-            },
-            {
-                "event_type": "api_call",
-                "method": random.choice(["GET", "POST", "PUT", "DELETE"]),
-                "endpoint": random.choice(["/api/users", "/api/orders", "/api/products", "/api/reports"]),
-                "status_code": random.choice([200, 201, 400, 401, 404, 500]),
-                "request_size": random.randint(100, 5000),
-                "response_size": random.randint(200, 10000),
-                "duration": random.randint(10, 1000)
-            },
-            {
-                "event_type": "database_query",
-                "query_type": random.choice(["SELECT", "INSERT", "UPDATE", "DELETE"]),
-                "table_name": random.choice(["users", "orders", "products", "audit_logs"]),
-                "execution_time": random.randint(5, 500),
-                "rows_processed": random.randint(0, 1000),
-                "cache_hit": random.choice([True, False])
-            },
-            {
-                "event_type": "error",
-                "error_level": random.choice(["WARNING", "ERROR", "CRITICAL"]),
-                "error_code": random.choice(["ERR_001", "ERR_002", "ERR_003"]),
-                "error_message": "Sample error message for demonstration",
-                "component": random.choice(["auth", "database", "api", "cache"]),
-                "retry_count": random.randint(0, 3)
-            },
-            {
-                "event_type": "performance_metric",
-                "metric_name": random.choice(["cpu_usage", "memory_usage", "disk_io", "network_io"]),
-                "metric_value": random.uniform(0.1, 99.9),
-                "metric_unit": random.choice(["%", "MB", "MB/s", "req/s"]),
-                "threshold_exceeded": random.choice([True, False])
-            }
-        ]
-        
-        event_data = random.choice(events)
-        
-        # Add common fields
-        event_data.update({
-            "timestamp": datetime.utcnow().isoformat(),
-            "application": "gelf-demo-app",
-            "version": "1.2.3",
-            "environment": "development",
-            "hostname": "python-container",
-            "process_id": 12345,
-            "thread_id": random.randint(1, 10)
-        })
-        
-        # Determine log level
-        level = logging.ERROR if event_data.get("event_type") == "error" else logging.INFO
-        
-        # Log with structured data (this goes to GELF)
-        logger.log(level, json.dumps(event_data), extra=event_data)
-        
-        # Also print to stdout (captured by Docker GELF driver)
-        print(json.dumps(event_data))
-        
-        time.sleep(random.randint(2, 8))
+      def generate_structured_logs():
+          """Generate structured logs with custom GELF fields"""
+          while True:
+              events = [
+                  {
+                      "event_type": "user_activity",
+                      "action": random.choice(["login", "logout", "page_view", "button_click"]),
+                      "user_id": random.randint(1000, 9999),
+                      "session_id": f"sess_{random.randint(100000, 999999)}",
+                      "ip_address": f"192.168.1.{random.randint(1, 254)}",
+                      "user_agent": "Mozilla/5.0 (compatible; Demo-Client/1.0)",
+                      "response_time_ms": random.randint(50, 2000)
+                  },
+                  {
+                      "event_type": "api_call",
+                      "method": random.choice(["GET", "POST", "PUT", "DELETE"]),
+                      "endpoint": random.choice(["/api/users", "/api/orders", "/api/products", "/api/reports"]),
+                      "status_code": random.choice([200, 201, 400, 401, 404, 500]),
+                      "request_size": random.randint(100, 5000),
+                      "response_size": random.randint(200, 10000),
+                      "duration": random.randint(10, 1000)
+                  },
+                  {
+                      "event_type": "database_query",
+                      "query_type": random.choice(["SELECT", "INSERT", "UPDATE", "DELETE"]),
+                      "table_name": random.choice(["users", "orders", "products", "audit_logs"]),
+                      "execution_time": random.randint(5, 500),
+                      "rows_processed": random.randint(0, 1000),
+                      "cache_hit": random.choice([True, False])
+                  },
+                  {
+                      "event_type": "error",
+                      "error_level": random.choice(["WARNING", "ERROR", "CRITICAL"]),
+                      "error_code": random.choice(["ERR_001", "ERR_002", "ERR_003"]),
+                      "error_message": "Sample error message for demonstration",
+                      "component": random.choice(["auth", "database", "api", "cache"]),
+                      "retry_count": random.randint(0, 3)
+                  },
+                  {
+                      "event_type": "performance_metric",
+                      "metric_name": random.choice(["cpu_usage", "memory_usage", "disk_io", "network_io"]),
+                      "metric_value": random.uniform(0.1, 99.9),
+                      "metric_unit": random.choice(["%", "MB", "MB/s", "req/s"]),
+                      "threshold_exceeded": random.choice([True, False])
+                  }
+              ]
 
-if __name__ == "__main__":
-    print("Starting GELF Python application...")
-    logger.info("Application started", extra={
-        "event_type": "application_start",
-        "application": "gelf-demo-app",
-        "version": "1.2.3"
-    })
-    generate_structured_logs()
-EOF
+              event_data = random.choice(events)
+
+              # Add common fields
+              event_data.update({
+                  "timestamp": datetime.utcnow().isoformat(),
+                  "application": "gelf-demo-app",
+                  "version": "1.2.3",
+                  "environment": "development",
+                  "hostname": "python-container",
+                  "process_id": 12345,
+                  "thread_id": random.randint(1, 10)
+              })
+
+              # Determine log level
+              level = logging.ERROR if event_data.get("event_type") == "error" else logging.INFO
+
+              # Log with structured data (this goes to GELF)
+              logger.log(level, json.dumps(event_data), extra=event_data)
+
+              # Also print to stdout (captured by Docker GELF driver)
+              print(json.dumps(event_data))
+
+              time.sleep(random.randint(2, 8))
+
+      if __name__ == "__main__":
+          print("Starting GELF Python application...")
+          logger.info("Application started", extra={
+              "event_type": "application_start",
+              "application": "gelf-demo-app",
+              "version": "1.2.3"
+          })
+          generate_structured_logs()
+      EOF
              python /app.py'
     depends_on:
       - graylog

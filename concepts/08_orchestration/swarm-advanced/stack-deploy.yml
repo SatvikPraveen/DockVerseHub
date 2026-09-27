@@ -87,80 +87,80 @@ services:
     command: |
       sh -c 'pip install --no-cache-dir flask redis psycopg2-binary PyJWT &&
              cat > /app/app.py << "EOF"
-from flask import Flask, jsonify, request
-import redis
-import json
-import os
-import jwt
-from datetime import datetime, timedelta
+      from flask import Flask, jsonify, request
+      import redis
+      import json
+      import os
+      import jwt
+      from datetime import datetime, timedelta
 
-app = Flask(__name__)
+      app = Flask(__name__)
 
-# Load configurations
-with open("/app/config.json", "r") as f:
-    config = json.load(f)
+      # Load configurations
+      with open("/app/config.json", "r") as f:
+          config = json.load(f)
 
-# Load secrets
-with open("/run/secrets/db_password", "r") as f:
-    db_password = f.read().strip()
+      # Load secrets
+      with open("/run/secrets/db_password", "r") as f:
+          db_password = f.read().strip()
 
-with open("/run/secrets/jwt_key", "r") as f:
-    jwt_secret = f.read().strip()
+      with open("/run/secrets/jwt_key", "r") as f:
+          jwt_secret = f.read().strip()
 
-# Redis connection
-r = redis.Redis.from_url(os.getenv("REDIS_URL"))
+      # Redis connection
+      r = redis.Redis.from_url(os.getenv("REDIS_URL"))
 
-@app.route("/health")
-def health():
-    try:
-        r.ping()
-        return jsonify({
-            "status": "healthy",
-            "timestamp": datetime.utcnow().isoformat(),
-            "version": config.get("version", "1.0.0"),
-            "environment": config.get("environment", "unknown")
-        })
-    except:
-        return jsonify({"status": "unhealthy"}), 503
+      @app.route("/health")
+      def health():
+          try:
+              r.ping()
+              return jsonify({
+                  "status": "healthy",
+                  "timestamp": datetime.utcnow().isoformat(),
+                  "version": config.get("version", "1.0.0"),
+                  "environment": config.get("environment", "unknown")
+              })
+          except:
+              return jsonify({"status": "unhealthy"}), 503
 
-@app.route("/api/token")
-def get_token():
-    payload = {
-        "user_id": 1,
-        "exp": datetime.utcnow() + timedelta(hours=1)
-    }
-    token = jwt.encode(payload, jwt_secret, algorithm="HS256")
-    return jsonify({"token": token})
+      @app.route("/api/token")
+      def get_token():
+          payload = {
+              "user_id": 1,
+              "exp": datetime.utcnow() + timedelta(hours=1)
+          }
+          token = jwt.encode(payload, jwt_secret, algorithm="HS256")
+          return jsonify({"token": token})
 
-@app.route("/api/data")
-def get_data():
-    cache_key = "data:latest"
-    cached = r.get(cache_key)
-    
-    if cached:
-        return jsonify(json.loads(cached))
-    
-    data = {
-        "timestamp": datetime.utcnow().isoformat(),
-        "data": list(range(10)),
-        "cached": False
-    }
-    
-    r.setex(cache_key, 300, json.dumps(data))
-    return jsonify(data)
+      @app.route("/api/data")
+      def get_data():
+          cache_key = "data:latest"
+          cached = r.get(cache_key)
 
-@app.route("/api/metrics")
-def metrics():
-    return jsonify({
-        "requests_total": 1000,
-        "response_time_avg": 0.125,
-        "memory_usage": "85MB",
-        "cpu_usage": "15%"
-    })
+          if cached:
+              return jsonify(json.loads(cached))
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080, debug=False)
-EOF
+          data = {
+              "timestamp": datetime.utcnow().isoformat(),
+              "data": list(range(10)),
+              "cached": False
+          }
+
+          r.setex(cache_key, 300, json.dumps(data))
+          return jsonify(data)
+
+      @app.route("/api/metrics")
+      def metrics():
+          return jsonify({
+              "requests_total": 1000,
+              "response_time_avg": 0.125,
+              "memory_usage": "85MB",
+              "cpu_usage": "15%"
+          })
+
+      if __name__ == "__main__":
+          app.run(host="0.0.0.0", port=8080, debug=False)
+      EOF
              python /app/app.py'
     deploy:
       mode: replicated

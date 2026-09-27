@@ -117,7 +117,7 @@ services:
     networks:
       - consul-network
     command: |
-      sh -c 'consul connect envoy -sidecar-for web-service-$HOSTNAME -admin-bind 0.0.0.0:19000'
+      sh -c 'consul connect envoy -sidecar-for web-service-$$HOSTNAME -admin-bind 0.0.0.0:19000'
     environment:
       - CONSUL_HTTP_ADDR=consul-server:8500
     deploy:
@@ -148,81 +148,81 @@ services:
     command: |
       sh -c 'pip install flask consul-python requests &&
              cat > /app.py << "EOF"
-from flask import Flask, jsonify, request
-import consul
-import requests
-import os
-import json
+      from flask import Flask, jsonify, request
+      import consul
+      import requests
+      import os
+      import json
 
-app = Flask(__name__)
-consul_client = consul.Consul(host="consul-server", port=8500)
+      app = Flask(__name__)
+      consul_client = consul.Consul(host="consul-server", port=8500)
 
-# Register service with Consul
-def register_service():
-    consul_client.agent.service.register(
-        name="api",
-        service_id="api-service-1",
-        address="api-service",
-        port=8080,
-        tags=["api", "backend"],
-        check=consul.Check.http("http://api-service:8080/health", interval="30s")
-    )
+      # Register service with Consul
+      def register_service():
+          consul_client.agent.service.register(
+              name="api",
+              service_id="api-service-1",
+              address="api-service",
+              port=8080,
+              tags=["api", "backend"],
+              check=consul.Check.http("http://api-service:8080/health", interval="30s")
+          )
 
-@app.route("/health")
-def health():
-    return jsonify({
-        "status": "healthy",
-        "service": "api",
-        "consul_connected": True
-    })
+      @app.route("/health")
+      def health():
+          return jsonify({
+              "status": "healthy",
+              "service": "api",
+              "consul_connected": True
+          })
 
-@app.route("/api/data")
-def get_data():
-    return jsonify({
-        "data": "API response",
-        "timestamp": "2023-01-01T00:00:00Z"
-    })
+      @app.route("/api/data")
+      def get_data():
+          return jsonify({
+              "data": "API response",
+              "timestamp": "2023-01-01T00:00:00Z"
+          })
 
-@app.route("/api/services")
-def list_services():
-    try:
-        services = consul_client.health.service("web", passing=True)[1]
-        return jsonify({
-            "discovered_services": [
-                {
-                    "name": s["Service"]["Service"],
-                    "address": s["Service"]["Address"],
-                    "port": s["Service"]["Port"],
-                    "health": s["Checks"][0]["Status"] if s["Checks"] else "unknown"
-                }
-                for s in services
-            ]
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+      @app.route("/api/services")
+      def list_services():
+          try:
+              services = consul_client.health.service("web", passing=True)[1]
+              return jsonify({
+                  "discovered_services": [
+                      {
+                          "name": s["Service"]["Service"],
+                          "address": s["Service"]["Address"],
+                          "port": s["Service"]["Port"],
+                          "health": s["Checks"][0]["Status"] if s["Checks"] else "unknown"
+                      }
+                      for s in services
+                  ]
+              })
+          except Exception as e:
+              return jsonify({"error": str(e)}), 500
 
-@app.route("/api/call-web")
-def call_web():
-    try:
-        # Discover web service through Consul
-        services = consul_client.health.service("web", passing=True)[1]
-        if not services:
-            return jsonify({"error": "No healthy web services found"}), 503
-        
-        web_service = services[0]["Service"]
-        response = requests.get(f"http://{web_service['Address']}:{web_service['Port']}/health")
-        
-        return jsonify({
-            "web_service_response": response.json(),
-            "called_service": f"{web_service['Address']}:{web_service['Port']}"
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+      @app.route("/api/call-web")
+      def call_web():
+          try:
+              # Discover web service through Consul
+              services = consul_client.health.service("web", passing=True)[1]
+              if not services:
+                  return jsonify({"error": "No healthy web services found"}), 503
 
-if __name__ == "__main__":
-    register_service()
-    app.run(host="0.0.0.0", port=8080)
-EOF
+              web_service = services[0]["Service"]
+              response = requests.get(f"http://{web_service['Address']}:{web_service['Port']}/health")
+
+              return jsonify({
+                  "web_service_response": response.json(),
+                  "called_service": f"{web_service['Address']}:{web_service['Port']}"
+              })
+          except Exception as e:
+              return jsonify({"error": str(e)}), 500
+
+      if __name__ == "__main__":
+          register_service()
+          app.run(host="0.0.0.0", port=8080)
+      EOF
              python /app.py'
     deploy:
       replicas: 2
@@ -256,7 +256,7 @@ EOF
     networks:
       - consul-network
     command: |
-      sh -c 'consul connect envoy -sidecar-for api-service-$HOSTNAME -admin-bind 0.0.0.0:19001'
+      sh -c 'consul connect envoy -sidecar-for api-service-$$HOSTNAME -admin-bind 0.0.0.0:19001'
     environment:
       - CONSUL_HTTP_ADDR=consul-server:8500
     deploy:
