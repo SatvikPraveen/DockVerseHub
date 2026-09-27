@@ -105,7 +105,7 @@ _Lower is better._
 | Storage driver | overlayfs |
 | Docker CPUs / memory | 10 / 8.3 GB |
 | BuildKit | True (github.com/docker/buildx v0.36.1-desktop.1 83d819cf8237b52ef45a2a9857eeb83a7b10977f) |
-| Git commit | 980e53bad79df5bbc39873e002c3662b12d56846 |
+| Git commit | 2dd6d16b7ea64ec6ac9edbe2a7ff57af3e94c91a |
 
 ## How to read this
 
