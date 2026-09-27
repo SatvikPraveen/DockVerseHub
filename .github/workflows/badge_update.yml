@@ -250,8 +250,8 @@ jobs:
       - name: Commit and push changes
         if: steps.changes.outputs.changed == 'true'
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
+          git config --local user.email "satvikpraveen707@gmail.com"
+          git config --local user.name "Satvik Praveen"
           git add README.md
           git commit -m "🏷️ Update README badges [skip ci]" || exit 0
           git push origin main
