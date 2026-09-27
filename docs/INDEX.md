@@ -33,6 +33,11 @@ Welcome! This page helps you navigate all the documentation in DockVerseHub. Cho
   - 20-hour weekend warrior (1-2 weeks)
   - 50-hour comprehensive mastery (8 weeks or intensive)
 
+**🔬 Want Evidence, Not Anecdotes?**
+- [Research Harness](../research/README.md) - reproducible benchmarks with statistical reports
+- [Methodology](../research/METHODOLOGY.md) - protocol, statistics, threats to validity
+- [Results Index](../research/results/README.md) - committed runs with environment snapshots
+
 **🎓 Preparing for Certification?**
 - [Certification Prep Guide](learning-paths/certification-prep.md)
 - [Docker Cheatsheet](docker-cheatsheet.md)

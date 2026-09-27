@@ -1,11 +1,57 @@
 # Changelog
 
-**Location:** `./CHANGELOG.md`
+**Location:** `docs/CHANGELOG.md`
 
 All notable changes to DockVerseHub will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [3.0.0] - 2026-09-27
+
+### Added
+
+- **Research harness** (`research/`): dependency-free framework for controlled,
+  repeatable container experiments. Declarative JSON experiments, warm-up
+  rounds, seeded block-randomised trial order, append-only raw logs, host and
+  Docker environment snapshot, and reports with Student-t confidence intervals,
+  bootstrap intervals, Cohen's d, Cliff's delta, Welch's t-test and permutation
+  tests versus a declared baseline.
+- Four experiments with committed results: base-image footprint and cold
+  start, layer-cache ordering, multi-stage vs single-stage, BuildKit cache
+  mounts.
+- `research/METHODOLOGY.md` (protocol, threats to validity, reproduction
+  procedure) and `research/REFERENCES.md` + `references.bib` (33 sources).
+- `CITATION.cff` so the repository can be cited; `CODEOWNERS`.
+- pytest suites: 28 harness unit tests (statistics verified against published
+  tables) and repository invariants (link integrity, structure, badge counts,
+  Dockerfile healthcheck sanity).
+- `research-benchmarks.yml` workflow: lint, unit tests, weekly smoke
+  benchmarks with reports as job summaries and artifacts. `ci.yml` gains a
+  unit-test job and validates every YAML file instead of the first 20.
+- `pyproject.toml` (ruff, black, pytest, mypy, coverage), `.editorconfig`,
+  `.pre-commit-config.yaml`, `.hadolint.yaml`, `.yamllint.yml`.
+- `concepts/06_security/Dockerfile.rootless`: real non-root implementation
+  (fixed UID/GID, root-owned read-only code, single writable volume, setuid
+  bits stripped) replacing an empty placeholder.
+- `.mailmap` mapping historical aliases to the canonical author identity.
+
+### Changed
+
+- `requirements.txt` reduced to packages the repository actually imports;
+  development tooling moved to `requirements-dev.txt`.
+- README: research section, corrected statistics, live workflow badges.
+- Badge workflow counts files with pathlib and commits under the canonical
+  author identity.
+
+### Fixed
+
+- `requirements.txt` was uninstallable: `docker-compose>=1.29.3` names a
+  version that was never published.
+- Lab 01 HEALTHCHECK called `curl`, which `python:3.11-slim` does not ship;
+  the container was permanently unhealthy. Probe with the interpreter instead.
+- Badge workflow under-counted labs and concepts by one.
+- Dead links in README and GETTING_STARTED; stray empty `{README.md}` files.
 
 ## [Unreleased]
 

@@ -54,6 +54,24 @@ Then visit: `http://localhost:8080`
 
 **For detailed setup instructions, see [GETTING_STARTED.md](docs/GETTING_STARTED.md) or [ENHANCEMENT_PLAN.md](docs/project-docs/ENHANCEMENT_PLAN.md) for the improvement roadmap**
 
+## 🔬 Research: Measured, Not Asserted
+
+Every performance claim in the curriculum is backed by a controlled experiment you can rerun. The `research/` directory contains a dependency-free benchmark harness (standard library + Docker CLI) that executes declarative experiments with warm-up rounds, seeded block-randomised trial order and an environment snapshot, then reports 95% confidence intervals, Cohen's *d*, Cliff's δ, Welch's *t* and permutation *p*-values against a declared baseline.
+
+| Experiment | Question |
+|---|---|
+| `exp01_base_image_footprint` | Full vs slim vs Alpine vs distroless: size, cold build, cold start |
+| `exp02_layer_cache_effectiveness` | What a source-only edit costs when deps are copied first vs last |
+| `exp03_multistage_vs_single` | Runtime size saved and build time paid by multi-stage builds |
+| `exp04_buildkit_cache_mount` | Rebuild time recovered by `RUN --mount=type=cache` on pip's cache |
+
+```bash
+python -m research.harness list
+python -m research.harness run exp02_layer_cache_effectiveness
+```
+
+Committed results with their environment are indexed in [research/results/README.md](research/results/README.md). The protocol is in [research/METHODOLOGY.md](research/METHODOLOGY.md); sources in [research/REFERENCES.md](research/REFERENCES.md). To cite the repository use [CITATION.cff](CITATION.cff).
+
 ## 📚 Repository Structure
 
 ### Concepts (13 modules)
@@ -86,6 +104,9 @@ Working applications demonstrating real-world patterns:
 | Lab 06: Production Deploy | 90-120m | Advanced | SSL, backup, health checks, security |
 | Lab 07: Kubernetes Deploy | 120-150m | Advanced | Multi-tier K8s app, manifests, deployments |
 | Lab 08: Observability Stack | 240-300m | Advanced | Complete monitoring, tracing, incident response |
+
+### Research (4 experiments)
+Reproducible benchmarks with statistical reports in `research/` (see above).
 
 ### Documentation
 Comprehensive guides in `docs/`:
@@ -141,6 +162,13 @@ make setup
 # Run all validation tests
 make test-all
 
+# Unit tests and repository invariants (no Docker needed)
+make test-unit
+
+# Reproducible benchmarks
+make research-validate
+make research-run EXP=exp01_base_image_footprint
+
 # Start a specific lab
 make lab-01
 
@@ -178,6 +206,7 @@ cd concepts/02_images_layers
 ## 📋 Key Features
 
 ### ✅ Validated Code
+- pytest suite: harness statistics verified against published t-tables; repository invariants (links, structure, Dockerfile sanity)
 - All Python scripts compile without errors
 - All Dockerfiles build successfully
 - All Docker Compose files have valid syntax
@@ -209,20 +238,22 @@ cd concepts/02_images_layers
 - Performance benchmarking tools
 - Security scanning templates
 - Automated dependency updates (Dependabot)
-- GitHub Actions CI/CD (7 workflows)
+- GitHub Actions CI/CD (8 workflows, including weekly research benchmarks)
 
 ## 🔍 Project Statistics
 
 ```
-Dockerfiles:        37
+Dockerfiles:        47
 Docker Compose:     22
 Labs:               8 complete
 Concepts:           13 modules
+Experiments:        4 reproducible (research/)
+Unit tests:         134 (pytest)
 Documentation:      40+ guides (18,700+ lines)
 Scripts:            40+ utilities
 Languages:          Python, Go, JavaScript, Shell
 Security:           0 vulnerabilities
-CI/CD Workflows:    7 automated
+CI/CD Workflows:    8 automated
 GitHub Commits:     60+ (tracked across phases)
 ```
 
@@ -242,6 +273,7 @@ make test-labs
 ```
 
 GitHub Actions runs on every commit to ensure:
+- ✓ 134 pytest checks pass (statistics vs published tables, runner behaviour, link integrity, Dockerfile healthcheck sanity)
 - ✓ Python syntax is valid
 - ✓ Shell scripts are executable
 - ✓ YAML configurations are valid
@@ -261,6 +293,7 @@ GitHub Actions runs on every commit to ensure:
 ### In This Repository
 - 13 concept modules with explanations and examples
 - 8 complete lab projects with real applications
+- 4 reproducible benchmark experiments with statistical reports
 - 40+ documentation files
 - Quick reference guides and cheatsheets
 - Troubleshooting flowcharts
@@ -314,9 +347,11 @@ Contributions are welcome! Please see [CONTRIBUTING.md](docs/CONTRIBUTING.md) fo
 - How to submit pull requests
 - Code and documentation standards
 
-## 📄 License
+## 📄 License & Citation
 
 This project is licensed under the MIT License - see [LICENSE](LICENSE) for details.
+
+If you use DockVerseHub or its benchmark harness in academic work, cite it via [CITATION.cff](CITATION.cff) (GitHub's "Cite this repository" button renders APA and BibTeX).
 
 ## 🔒 Security & Automation
 
@@ -330,7 +365,7 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) for deta
 See [SECURITY.md](.github/SECURITY.md) for complete security policy and incident response procedures.
 
 ### CI/CD Pipeline
-- 7 automated GitHub Actions workflows
+- 8 automated GitHub Actions workflows
 - Continuous validation of all code
 - Automated security scanning on every commit
 - Dependency updates with Dependabot
