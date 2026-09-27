@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # File Location: concepts/04_networking/Dockerfile.web
 # Minimal web app for networking demos
 

@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # File Location: concepts/03_volumes_bindmounts/Dockerfile
 # Demo app persisting logs
 
@@ -17,11 +18,8 @@ RUN mkdir -p /app/logs && chmod 755 /app/logs
 # Create non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
-# Copy application files
-COPY app.py requirements.txt ./
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# The application and its requirements are generated below with RUN
+# heredocs, so nothing is copied from the build context.
 
 # Create the application
 RUN cat > app.py << 'EOF'
@@ -107,7 +105,8 @@ if __name__ == '__main__':
 EOF
 
 # Create requirements.txt
-RUN echo "flask==2.0.1" > requirements.txt && \
+# Werkzeug 3 removed APIs that Flask 2.0 imports; pin a compatible release.
+RUN printf "flask==2.0.1\nwerkzeug==2.0.3\n" > requirements.txt && \
     pip install --no-cache-dir -r requirements.txt
 
 # Change ownership

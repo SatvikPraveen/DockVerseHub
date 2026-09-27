@@ -1,6 +1,6 @@
+# syntax=docker/dockerfile:1.6-labs
 # 09_advanced_tricks/Dockerfile.buildkit
 
-# syntax=docker/dockerfile:1.6-labs
 # Enable BuildKit experimental features
 
 # Build arguments for flexibility

@@ -1,6 +1,7 @@
-# 09_advanced_tricks/Dockerfile.experimental
-
 # syntax=docker/dockerfile:1.7-labs
+# 09_advanced_tricks/Dockerfile.experimental
+# (Parser directives such as 'syntax' are only honoured on the very first
+#  lines of a Dockerfile, before any other comment.)
 # Enable experimental Dockerfile features
 
 ARG BUILDKIT_SYNTAX=docker/dockerfile:1.7-labs
