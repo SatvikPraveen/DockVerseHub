@@ -58,42 +58,28 @@ jobs:
                   return {}
 
           def count_files():
-              """Count various file types in repository"""
-              try:
-                  dockerfile_count = subprocess.check_output(
-                      ["find", ".", "-name", "Dockerfile*", "-type", "f", "!", "-path", "./.git/*"],
-                      text=True
-                  ).strip().count('\n') + 1 if subprocess.check_output(
-                      ["find", ".", "-name", "Dockerfile*", "-type", "f", "!", "-path", "./.git/*"],
-                      text=True
-                  ).strip() else 0
+              """Count repository artefacts with pathlib (no shell, no off-by-one)."""
+              from pathlib import Path
+              root = Path('.')
+              skip = {'.git', 'node_modules', '__pycache__'}
 
-                  compose_count = subprocess.check_output(
-                      ["find", ".", "-name", "docker-compose*.yml", "-type", "f", "!", "-path", "./.git/*"],
-                      text=True
-                  ).strip().count('\n') + 1 if subprocess.check_output(
-                      ["find", ".", "-name", "docker-compose*.yml", "-type", "f", "!", "-path", "./.git/*"],
-                      text=True
-                  ).strip() else 0
+              def walk(pattern):
+                  return [p for p in root.rglob(pattern)
+                          if p.is_file() and not (set(p.parts) & skip)]
 
-                  labs_count = subprocess.check_output(
-                      ["find", "./labs", "-maxdepth", "1", "-type", "d"],
-                      text=True
-                  ).strip().count('\n') if os.path.exists('./labs') else 0
+              dockerfiles = walk('Dockerfile*')
+              compose_files = walk('docker-compose*.yml') + walk('compose*.yml')
+              labs = sorted(p for p in Path('labs').glob('lab_*') if p.is_dir()) if Path('labs').is_dir() else []
+              concepts = sorted(p for p in Path('concepts').glob('[0-9]*') if p.is_dir()) if Path('concepts').is_dir() else []
+              experiments = sorted(p for p in Path('research/experiments').glob('*.json')) if Path('research/experiments').is_dir() else []
 
-                  concepts_count = subprocess.check_output(
-                      ["find", "./concepts", "-maxdepth", "1", "-type", "d"],
-                      text=True
-                  ).strip().count('\n') if os.path.exists('./concepts') else 0
-
-                  return {
-                      'dockerfiles': max(0, dockerfile_count),
-                      'compose_files': max(0, compose_count),
-                      'labs': max(0, labs_count - 1),  # Subtract 1 for the labs directory itself
-                      'concepts': max(0, concepts_count - 1)  # Subtract 1 for the concepts directory itself
-                  }
-              except:
-                  return {'dockerfiles': 0, 'compose_files': 0, 'labs': 0, 'concepts': 0}
+              return {
+                  'dockerfiles': len(dockerfiles),
+                  'compose_files': len(compose_files),
+                  'labs': len(labs),
+                  'concepts': len(concepts),
+                  'experiments': len(experiments),
+              }
 
           def main():
               print("Collecting repository metrics...")
@@ -154,6 +140,7 @@ jobs:
                   'compose_files': generate_badge_url('Compose Files', metrics['compose_files'], 'green'),
                   'labs': generate_badge_url('Labs', metrics['labs'], 'orange'),
                   'concepts': generate_badge_url('Concepts', metrics['concepts'], 'purple'),
+                  'experiments': generate_badge_url('Experiments', metrics.get('experiments', 0), 'teal'),
                   'stars': generate_badge_url('Stars', metrics['stars'], 'yellow'),
                   'forks': generate_badge_url('Forks', metrics['forks'], 'lightgrey'),
                   'issues': generate_badge_url('Issues', metrics['issues'], 'red' if metrics['issues'] > 10 else 'green'),
@@ -202,6 +189,7 @@ jobs:
                   badge_section += f"![Compose Files]({badges['compose_files']})\n"
                   badge_section += f"![Labs]({badges['labs']})\n"
                   badge_section += f"![Concepts]({badges['concepts']})\n"
+                  badge_section += f"![Experiments]({badges['experiments']})\n"
                   badge_section += f"![Stars]({badges['stars']})\n"
                   badge_section += f"![Forks]({badges['forks']})\n"
                   badge_section += f"![Issues]({badges['issues']})\n"

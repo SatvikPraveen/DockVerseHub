@@ -5,19 +5,17 @@
 ![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat&logo=docker&logoColor=white)
 ![Dockerfiles](https://img.shields.io/badge/Dockerfiles-37-blue?style=flat)
 ![Compose Files](https://img.shields.io/badge/Compose%20Files-22-green?style=flat)
-![Labs](https://img.shields.io/badge/Labs-7-orange?style=flat)
-![Concepts](https://img.shields.io/badge/Concepts-12-purple?style=flat)
+![Labs](https://img.shields.io/badge/Labs-8-orange?style=flat)
+![Concepts](https://img.shields.io/badge/Concepts-13-purple?style=flat)
 ![Stars](https://img.shields.io/badge/Stars-0-yellow?style=flat)
 ![Forks](https://img.shields.io/badge/Forks-0-lightgrey?style=flat)
 ![Issues](https://img.shields.io/badge/Issues-0-green?style=flat)
-![Last Updated](https://img.shields.io/badge/Last%20Updated-2025-12-09-brightgreen?style=flat)
+![Last Updated](https://img.shields.io/badge/Last%20Updated-2026-09-27-brightgreen?style=flat)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![Contributions Welcome](https://img.shields.io/badge/Contributions-Welcome-brightgreen.svg)
 <!-- BADGES END -->
-[![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
-[![Docker Compose](https://img.shields.io/badge/Docker%20Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://docs.docker.com/compose/)
-[![CI/CD](https://github.com/SatvikPraveen/DockVerseHub/workflows/DockVerseHub%20CI%2FCD/badge.svg)](https://github.com/SatvikPraveen/DockVerseHub/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/SatvikPraveen/DockVerseHub/actions/workflows/ci.yml/badge.svg)](https://github.com/SatvikPraveen/DockVerseHub/actions/workflows/ci.yml)
+[![Research Benchmarks](https://github.com/SatvikPraveen/DockVerseHub/actions/workflows/research-benchmarks.yml/badge.svg)](https://github.com/SatvikPraveen/DockVerseHub/actions/workflows/research-benchmarks.yml)
 
 > **Production-Ready Docker Learning Platform** with structured concepts, hands-on labs, and enterprise deployment patterns.
 
@@ -54,7 +52,7 @@ docker-compose up
 
 Then visit: `http://localhost:8080`
 
-**For detailed setup instructions, see [GETTING_STARTED.md](docs/GETTING_STARTED.md) or [ENHANCEMENT_PLAN.md](ENHANCEMENT_PLAN.md) for improvement roadmap**
+**For detailed setup instructions, see [GETTING_STARTED.md](docs/GETTING_STARTED.md) or [ENHANCEMENT_PLAN.md](docs/project-docs/ENHANCEMENT_PLAN.md) for the improvement roadmap**
 
 ## 📚 Repository Structure
 
@@ -253,9 +251,9 @@ GitHub Actions runs on every commit to ensure:
 
 ## 📖 Documentation
 
-- **[GETTING_STARTED.md](GETTING_STARTED.md)** - Complete setup and first steps guide
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** - How to contribute improvements
-- **[PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)** - Detailed directory structure
+- **[GETTING_STARTED.md](docs/GETTING_STARTED.md)** - Complete setup and first steps guide
+- **[CONTRIBUTING.md](docs/CONTRIBUTING.md)** - How to contribute improvements
+- **[PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md)** - Detailed directory structure
 - **[docs/](docs/)** - All comprehensive guides
 
 ## 🎓 Learning Resources
@@ -310,7 +308,7 @@ See [docs/troubleshooting.md](docs/troubleshooting.md) for more solutions.
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for:
+Contributions are welcome! Please see [CONTRIBUTING.md](docs/CONTRIBUTING.md) for:
 - How to report issues
 - How to suggest improvements
 - How to submit pull requests
@@ -329,7 +327,7 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) for deta
 - **Safety**: Dependency vulnerability checking
 - **Dependabot**: Automated security updates (weekly)
 
-See [SECURITY.md](SECURITY.md) for complete security policy and incident response procedures.
+See [SECURITY.md](.github/SECURITY.md) for complete security policy and incident response procedures.
 
 ### CI/CD Pipeline
 - 7 automated GitHub Actions workflows
@@ -344,7 +342,7 @@ See [SECURITY.md](SECURITY.md) for complete security policy and incident respons
 
 - **Report Issues**: Found a bug? [Open an issue](https://github.com/SatvikPraveen/DockVerseHub/issues)
 - **Request Features**: Have ideas? [Start a discussion](https://github.com/SatvikPraveen/DockVerseHub/discussions)
-- **Contribute Code**: See [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Contribute Code**: See [CONTRIBUTING.md](docs/CONTRIBUTING.md)
 - **Share Knowledge**: Submit case studies or improvements
 
 ## 📊 What You'll Learn
@@ -359,7 +357,7 @@ After completing DockVerseHub, you'll understand:
 
 ## 🎯 Next Steps
 
-1. **Clone the repository** and follow [GETTING_STARTED.md](GETTING_STARTED.md)
+1. **Clone the repository** and follow [GETTING_STARTED.md](docs/GETTING_STARTED.md)
 2. **Start with Lab 01** - it takes just 15-30 minutes
 3. **Read the concept modules** corresponding to your level
 4. **Work through all labs** in order
