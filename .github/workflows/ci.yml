@@ -109,7 +109,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install test tooling
-        run: python -m pip install --quiet pytest ruff black
+        run: python -m pip install --quiet pytest ruff black pyyaml
 
       - name: Lint research harness and tests
         run: |
