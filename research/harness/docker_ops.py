@@ -75,7 +75,9 @@ def build(
     timeout: float = 1800.0,
 ) -> BuildResult:
     """Build an image and return wall-clock build time, size and layer count."""
-    args = ["build", "--progress=plain", "-f", str(dockerfile), "-t", tag]
+    # --load: with a docker-container buildx builder (e.g. docker/setup-buildx-action)
+    # results stay in the builder cache unless loaded; harmless with the default builder.
+    args = ["build", "--load", "--progress=plain", "-f", str(dockerfile), "-t", tag]
     if no_cache:
         args.append("--no-cache")
     for k, v in (build_args or {}).items():
