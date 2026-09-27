@@ -3,14 +3,15 @@
 <!-- BADGES START -->
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white)
 ![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat&logo=docker&logoColor=white)
-![Dockerfiles](https://img.shields.io/badge/Dockerfiles-37-blue?style=flat)
+![Dockerfiles](https://img.shields.io/badge/Dockerfiles-48-blue?style=flat)
 ![Compose Files](https://img.shields.io/badge/Compose%20Files-22-green?style=flat)
 ![Labs](https://img.shields.io/badge/Labs-8-orange?style=flat)
 ![Concepts](https://img.shields.io/badge/Concepts-13-purple?style=flat)
+![Experiments](https://img.shields.io/badge/Experiments-4-teal?style=flat)
 ![Stars](https://img.shields.io/badge/Stars-0-yellow?style=flat)
 ![Forks](https://img.shields.io/badge/Forks-0-lightgrey?style=flat)
 ![Issues](https://img.shields.io/badge/Issues-0-green?style=flat)
-![Last Updated](https://img.shields.io/badge/Last%20Updated-2026-09-27-brightgreen?style=flat)
+![Last Updated](https://img.shields.io/badge/Last%20Updated-2026--09--27-brightgreen?style=flat)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![Contributions Welcome](https://img.shields.io/badge/Contributions-Welcome-brightgreen.svg)
 <!-- BADGES END -->

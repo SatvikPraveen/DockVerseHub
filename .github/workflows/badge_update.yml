@@ -127,8 +127,12 @@ jobs:
           def generate_badge_url(label, message, color="blue", style="flat"):
               """Generate shields.io badge URL"""
               base_url = "https://img.shields.io/badge"
-              encoded_label = urllib.parse.quote(label)
-              encoded_message = urllib.parse.quote(str(message))
+              # shields.io uses '-' as a field separator: literal dashes must be
+              # doubled ('--') and underscores doubled ('__').
+              def esc(t):
+                  return urllib.parse.quote(str(t).replace('-', '--').replace('_', '__'))
+              encoded_label = esc(label)
+              encoded_message = esc(message)
               return f"{base_url}/{encoded_label}-{encoded_message}-{color}?style={style}"
 
           def main():
