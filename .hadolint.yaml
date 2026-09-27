@@ -1,0 +1,19 @@
+# Location: ./.hadolint.yaml
+# Dockerfile lint policy. Pedagogical Dockerfiles in concepts/ and labs/
+# intentionally show anti-patterns side by side with fixes, so a few rules
+# are downgraded to warnings rather than errors.
+failure-threshold: error
+ignored:
+  - DL3008   # pin apt versions: examples track distro security updates instead
+  - DL3013   # pin pip versions: labs pin in requirements.txt, not in RUN
+  - DL3018   # pin apk versions: same reasoning as DL3008
+override:
+  warning:
+    - DL3007   # :latest tag (used deliberately in some teaching examples)
+    - DL4006   # set -o pipefail (shown explicitly in the security module)
+trustedRegistries:
+  - docker.io
+  - gcr.io
+  - ghcr.io
+  - quay.io
+  - mcr.microsoft.com

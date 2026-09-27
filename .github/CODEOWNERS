@@ -1,0 +1,5 @@
+# Location: .github/CODEOWNERS
+# Reviews for every path default to the maintainer.
+*                       @SatvikPraveen
+/research/              @SatvikPraveen
+/.github/workflows/     @SatvikPraveen

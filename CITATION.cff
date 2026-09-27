@@ -1,0 +1,30 @@
+# Location: ./CITATION.cff
+# Citation metadata (Citation File Format 1.2.0). GitHub renders this as a
+# "Cite this repository" button; tools such as Zotero and cffconvert read it.
+cff-version: 1.2.0
+message: "If you use DockVerseHub or its benchmark harness in academic work, please cite it as below."
+type: software
+title: "DockVerseHub: A Reproducible Docker Learning and Benchmarking Platform"
+abstract: >-
+  DockVerseHub is a structured, hands-on Docker curriculum (13 concept modules,
+  8 runnable labs) combined with a dependency-free research harness for
+  controlled, statistically reported container experiments covering image
+  footprint, build caching, multi-stage builds and cold-start latency.
+authors:
+  - family-names: Praveen
+    given-names: Satvik
+    email: satvikpraveen707@gmail.com
+repository-code: "https://github.com/SatvikPraveen/DockVerseHub"
+url: "https://github.com/SatvikPraveen/DockVerseHub"
+license: MIT
+version: "3.0.0"
+date-released: "2026-09-27"
+keywords:
+  - docker
+  - containers
+  - reproducible research
+  - benchmarking
+  - devops
+  - education
+  - buildkit
+  - kubernetes
