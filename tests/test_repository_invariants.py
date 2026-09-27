@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv"}
@@ -136,3 +137,25 @@ def test_citation_file_is_well_formed():
     text = cff.read_text(encoding="utf-8")
     for key in ("cff-version", "title", "authors", "repository-code", "license"):
         assert f"{key}:" in text, key
+
+
+# --------------------------------------------------------------------------- #
+# YAML well-formedness (every file, not a sample)
+# --------------------------------------------------------------------------- #
+
+
+class _TolerantLoader(yaml.SafeLoader):
+    """SafeLoader that accepts application tags such as GitLab's !reference."""
+
+
+_TolerantLoader.add_multi_constructor("!", lambda loader, suffix, node: None)
+
+
+@pytest.mark.parametrize(
+    "path",
+    sorted(_files("*.yml") + _files("*.yaml")),
+    ids=lambda p: str(p.relative_to(ROOT)),
+)
+def test_yaml_parses(path: Path):
+    with path.open(encoding="utf-8") as fh:
+        list(yaml.load_all(fh, Loader=_TolerantLoader))

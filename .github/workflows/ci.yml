@@ -56,10 +56,13 @@ jobs:
           # (Kubernetes manifests) are loaded with safe_load_all.
           find . \( -name "*.yml" -o -name "*.yaml" \) -not -path "./.git/*" -not -path "*/node_modules/*" -print0 \
             | xargs -0 python -c 'import sys, yaml
+          class L(yaml.SafeLoader): pass
+          # accept application tags such as GitLab CI !reference
+          L.add_multi_constructor("!", lambda loader, suffix, node: None)
           bad = 0
           for f in sys.argv[1:]:
               try:
-                  list(yaml.safe_load_all(open(f)))
+                  list(yaml.load_all(open(f), Loader=L))
               except Exception as e:
                   bad += 1; print(f"✗ {f}: {e}")
           sys.exit(1 if bad else 0)'
