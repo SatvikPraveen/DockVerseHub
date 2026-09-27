@@ -206,7 +206,8 @@ cd concepts/02_images_layers
 ## 📋 Key Features
 
 ### ✅ Validated Code
-- pytest suite: harness statistics verified against published t-tables; repository invariants (links, structure, Dockerfile sanity)
+- pytest suite: harness statistics verified against published t-tables; repository invariants (links, structure, every YAML file parses, Dockerfile sanity)
+- hadolint on every Dockerfile against a committed policy
 - All Python scripts compile without errors
 - All Dockerfiles build successfully
 - All Docker Compose files have valid syntax
@@ -243,12 +244,12 @@ cd concepts/02_images_layers
 ## 🔍 Project Statistics
 
 ```
-Dockerfiles:        47
+Dockerfiles:        48
 Docker Compose:     22
 Labs:               8 complete
 Concepts:           13 modules
 Experiments:        4 reproducible (research/)
-Unit tests:         134 (pytest)
+Unit tests:         370+ (pytest)
 Documentation:      40+ guides (18,700+ lines)
 Scripts:            40+ utilities
 Languages:          Python, Go, JavaScript, Shell
@@ -273,7 +274,7 @@ make test-labs
 ```
 
 GitHub Actions runs on every commit to ensure:
-- ✓ 134 pytest checks pass (statistics vs published tables, runner behaviour, link integrity, Dockerfile healthcheck sanity)
+- ✓ 370+ pytest checks pass (statistics vs published tables, runner behaviour, link integrity, every YAML file parses, Dockerfile healthcheck and parser-directive sanity)
 - ✓ Python syntax is valid
 - ✓ Shell scripts are executable
 - ✓ YAML configurations are valid

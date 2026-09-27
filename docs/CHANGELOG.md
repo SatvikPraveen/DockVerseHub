@@ -23,9 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `research/METHODOLOGY.md` (protocol, threats to validity, reproduction
   procedure) and `research/REFERENCES.md` + `references.bib` (33 sources).
 - `CITATION.cff` so the repository can be cited; `CODEOWNERS`.
-- pytest suites: 28 harness unit tests (statistics verified against published
-  tables) and repository invariants (link integrity, structure, badge counts,
-  Dockerfile healthcheck sanity).
+- pytest suites (370+ tests): 29 harness unit tests (statistics verified
+  against published tables) and repository invariants (link integrity,
+  structure, badge counts, every YAML file parses, Dockerfile healthcheck and
+  parser-directive sanity).
 - `research-benchmarks.yml` workflow: lint, unit tests, weekly smoke
   benchmarks with reports as job summaries and artifacts. `ci.yml` gains a
   unit-test job and validates every YAML file instead of the first 20.
@@ -52,6 +53,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the container was permanently unhealthy. Probe with the interpreter instead.
 - Badge workflow under-counted labs and concepts by one.
 - Dead links in README and GETTING_STARTED; stray empty `{README.md}` files.
+- 15 YAML files were invalid and refused by `docker compose`: heredoc bodies
+  escaped `command: |` blocks (12 concept files), a list anchor was merged
+  with `<<:` (Compose extensions example), and shell/Python/HCL/JSON files
+  were pasted into two secrets YAML files as extra documents (now split
+  into real files next to the Compose file). Unescaped shell and JavaScript
+  variables that Compose interpolated to empty strings are now `$$`-escaped.
+  The old CI missed all of this because it parsed only the first 20 YAML files.
+- `concepts/03_volumes_bindmounts/Dockerfile` never built (it copied
+  non-existent files) and paired Flask 2.0 with an incompatible Werkzeug.
+- Two `# syntax=` directives sat below a comment, so BuildKit ignored them.
+- The hadolint job linted its own config file instead of any Dockerfile,
+  because of a double stdin redirect.
 
 ## [Unreleased]
 
