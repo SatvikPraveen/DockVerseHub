@@ -20,7 +20,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          ssh-key: ${{ secrets.BADGE_DEPLOY_KEY }}
           fetch-depth: 0
 
       - name: Set up Python
