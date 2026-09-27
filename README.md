@@ -1,4 +1,4 @@
-# DockVerseHub - Comprehensive Docker Learning Platform
+# DockVerseHub
 
 <!-- BADGES START -->
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white)
@@ -18,396 +18,191 @@
 [![CI](https://github.com/SatvikPraveen/DockVerseHub/actions/workflows/ci.yml/badge.svg)](https://github.com/SatvikPraveen/DockVerseHub/actions/workflows/ci.yml)
 [![Research Benchmarks](https://github.com/SatvikPraveen/DockVerseHub/actions/workflows/research-benchmarks.yml/badge.svg)](https://github.com/SatvikPraveen/DockVerseHub/actions/workflows/research-benchmarks.yml)
 
-> **Production-Ready Docker Learning Platform** with structured concepts, hands-on labs, and enterprise deployment patterns.
+> A structured Docker curriculum (13 concept modules, 8 runnable labs) paired with a reproducible benchmarking harness, so that the practices it teaches are measured rather than asserted.
 
-DockVerseHub is a comprehensive, well-tested Docker education platform designed for developers at all levels. Whether you're learning Docker fundamentals or deploying to production, this repository provides practical examples, working code, and real-world patterns.
+DockVerseHub serves two audiences:
 
-## ✨ What Makes DockVerseHub Different
+- **Learners.** A progressive path from first `docker run` to Kubernetes, GitOps and observability, with a hands-on lab at each stage.
+- **Practitioners and researchers.** Controlled, repeatable container experiments with statistical reports, a written methodology and citable results.
 
-- **100% Working Code**: Every example has been tested and validated
-- **Progressive Learning**: Clear progression from beginner to advanced topics
-- **Hands-On Labs**: 8 complete, runnable projects with real applications
-- **Production Patterns**: Enterprise-ready deployment strategies
-- **Automated Testing**: CI/CD pipeline ensures everything stays working
-- **Comprehensive Docs**: 50+ guides covering theory to practice
+## Contents
 
-## 🚀 Quick Start
+- [Quick start](#quick-start)
+- [Research: measured, not asserted](#research-measured-not-asserted)
+- [Curriculum](#curriculum)
+- [Learning paths](#learning-paths)
+- [Quality and verification](#quality-and-verification)
+- [Development](#development)
+- [Troubleshooting](#troubleshooting)
+- [Contributing, license and citation](#contributing-license-and-citation)
 
-### 1. Clone & Enter Directory
+## Quick start
+
+Requirements: Docker Engine 23+ with the Compose v2 plugin (`docker compose`). Python 3.10+ is needed only for the research harness and the tests.
+
 ```bash
 git clone https://github.com/SatvikPraveen/DockVerseHub.git
 cd DockVerseHub
-```
 
-### 2. Verify Docker Installation
-```bash
-docker --version
-docker-compose --version
-```
+docker --version && docker compose version
 
-### 3. Run Your First Lab (5 minutes)
-```bash
+# First lab: a small Flask service (about 15 minutes)
 cd labs/lab_01_simple_app
-docker-compose up
+docker compose up --build
 ```
 
-Then visit: `http://localhost:8080`
+Then open <http://localhost:8080>. The container reports `healthy` in `docker compose ps` once its health check passes. Stop it with `docker compose down`.
 
-**For detailed setup instructions, see [GETTING_STARTED.md](docs/GETTING_STARTED.md) or [ENHANCEMENT_PLAN.md](docs/project-docs/ENHANCEMENT_PLAN.md) for the improvement roadmap**
+For a guided setup, see [GETTING_STARTED.md](docs/GETTING_STARTED.md).
 
-## 🔬 Research: Measured, Not Asserted
+## Research: measured, not asserted
 
-Every performance claim in the curriculum is backed by a controlled experiment you can rerun. The `research/` directory contains a dependency-free benchmark harness (standard library + Docker CLI) that executes declarative experiments with warm-up rounds, seeded block-randomised trial order and an environment snapshot, then reports 95% confidence intervals, Cohen's *d*, Cliff's δ, Welch's *t* and permutation *p*-values against a declared baseline.
+The `research/` directory contains a benchmarking harness that depends only on the Python standard library and the Docker CLI. It runs declarative experiments with warm-up rounds, a seeded block-randomised trial order and a full environment snapshot. It then reports 95% confidence intervals, Cohen's *d*, Cliff's δ, Welch's *t* and permutation *p*-values against a declared baseline. Each hypothesis is written before any data are collected.
 
-| Experiment | Question |
-|---|---|
-| `exp01_base_image_footprint` | Full vs slim vs Alpine vs distroless: size, cold build, cold start |
-| `exp02_layer_cache_effectiveness` | What a source-only edit costs when deps are copied first vs last |
-| `exp03_multistage_vs_single` | Runtime size saved and build time paid by multi-stage builds |
-| `exp04_buildkit_cache_mount` | Rebuild time recovered by `RUN --mount=type=cache` on pip's cache |
+### Findings at a glance
+
+Committed run on macOS arm64 with Docker Engine 29.7, cross-checked on Linux x86-64 in CI. Ratios are what transfer between machines; absolute seconds do not.
+
+| Question | Result | Verdict |
+|---|---|---|
+| Base image size (slim / Alpine / distroless vs full `python:3.12`) | −88% / −94% / −95% | Supported |
+| Does a smaller base start faster? | No: the full image was fastest; distroless was 72% slower | Not supported |
+| Copy dependencies before source: rebuild after a source-only edit | 5.0× faster (−80%), every trial | Supported |
+| Multi-stage vs single-stage (toolchain discarded) | −67% image size and −28% cold build time | Partly supported |
+| BuildKit cache mount for pip, after a manifest change | −14% mean rebuild time, *p* ≈ 0.24 | Inconclusive |
+
+Full analysis, including threats to validity: [research/results/FINDINGS.md](research/results/FINDINGS.md).
+
+### Running the experiments
 
 ```bash
-python -m research.harness list
+python -m research.harness list                    # what is defined
+python -m research.harness validate                # definitions and fixtures
 python -m research.harness run exp02_layer_cache_effectiveness
+python -m research.harness run                     # all four, about 10 minutes
 ```
 
-Committed results with their environment are indexed in [research/results/README.md](research/results/README.md). The protocol is in [research/METHODOLOGY.md](research/METHODOLOGY.md); sources in [research/REFERENCES.md](research/REFERENCES.md). To cite the repository use [CITATION.cff](CITATION.cff).
+Each run writes the frozen design, the environment snapshot, raw trials, a summary and a report to `research/results/<experiment>/<run-id>/`.
 
-## 📚 Repository Structure
+| Document | Purpose |
+|---|---|
+| [research/README.md](research/README.md) | Harness guide and output format |
+| [research/METHODOLOGY.md](research/METHODOLOGY.md) | Protocol, statistics, reproduction and threats to validity |
+| [research/REFERENCES.md](research/REFERENCES.md) | 33 sources, also as [BibTeX](research/references.bib) |
+| [research/results/README.md](research/results/README.md) | Index of committed runs |
 
-### Concepts (13 modules)
-Core Docker learning organized progressively:
+## Curriculum
 
-1. **01_getting_started** - Installation, CLI basics, container lifecycle
-2. **02_images_layers** - Image building, layers, optimization, registry
-3. **03_volumes_bindmounts** - Data persistence, backup/restore
-4. **04_networking** - Container communication, custom networks, load balancing
-5. **05_docker_compose** - Multi-container orchestration, profiles, scaling
-6. **06_security** - Hardening, secrets, vulnerability scanning, compliance
-7. **07_logging_monitoring** - ELK stack, Prometheus, Grafana, alerting
-8. **08_orchestration** - Docker Swarm, service discovery, clustering
-9. **09_advanced_tricks** - BuildKit, build optimization, debugging techniques
-10. **10_ci_cd_integration** - GitHub Actions, GitLab CI, Jenkins, deployment strategies
-11. **11_kubernetes** - Container orchestration, Kubernetes at scale, deployment patterns
-12. **12_gitops_iac** - GitOps principles, ArgoCD, Flux, Terraform, progressive delivery
-13. **13_observability_monitoring** - Prometheus, Grafana, Jaeger, OpenTelemetry, SLO/SLI
+### Concept modules
 
-### Labs (8 Projects)
-Working applications demonstrating real-world patterns:
+| # | Module | Topics |
+|---|---|---|
+| 01 | `getting_started` | Installation, CLI basics, container lifecycle |
+| 02 | `images_layers` | Image building, layers, optimisation, registries |
+| 03 | `volumes_bindmounts` | Data persistence, backup and restore |
+| 04 | `networking` | Container communication, custom networks, load balancing |
+| 05 | `docker_compose` | Multi-container apps, profiles, scaling, extensions |
+| 06 | `security` | Hardening, rootless containers, secrets, scanning, compliance |
+| 07 | `logging_monitoring` | Logging drivers, ELK, Prometheus, Grafana, alerting |
+| 08 | `orchestration` | Docker Swarm, placement, rolling updates, service mesh |
+| 09 | `advanced_tricks` | BuildKit, build optimisation, resource limits, debugging |
+| 10 | `ci_cd_integration` | GitHub Actions, GitLab CI, Jenkins, Azure DevOps, deployment strategies |
+| 11 | `kubernetes` | Core objects, deployment patterns, Kubernetes at scale |
+| 12 | `gitops_iac` | GitOps, Argo CD, Flux, Terraform, progressive delivery |
+| 13 | `observability_monitoring` | Prometheus, Grafana, Jaeger, OpenTelemetry, SLOs and SLIs |
 
-| Lab | Duration | Level | Topics |
-|-----|----------|-------|--------|
-| Lab 01: Simple App | 15-30m | Beginner | Basic containerization, Dockerfile, Compose |
-| Lab 02: Multi-Container | 30-45m | Beginner+ | Full-stack app, networking, volumes |
-| Lab 03: Image Optimization | 20-30m | Intermediate | Multi-stage builds, Alpine, caching |
-| Lab 04: Logging Dashboard | 45-60m | Intermediate+ | ELK, Prometheus, Grafana, monitoring |
-| Lab 05: Microservices | 60-90m | Advanced | Service mesh, API gateway, distributed systems |
-| Lab 06: Production Deploy | 90-120m | Advanced | SSL, backup, health checks, security |
-| Lab 07: Kubernetes Deploy | 120-150m | Advanced | Multi-tier K8s app, manifests, deployments |
-| Lab 08: Observability Stack | 240-300m | Advanced | Complete monitoring, tracing, incident response |
+Each module lives in `concepts/<NN>_<name>/` with a README and runnable examples.
 
-### Research (4 experiments)
-Reproducible benchmarks with statistical reports in `research/` (see above).
+### Labs
 
-### Documentation
-Comprehensive guides in `docs/`:
-- **Learning Paths**: Beginner, Intermediate, Advanced curricula
-- **Quick Reference**: Cheatsheets, best practices, troubleshooting
-- **Docker Basics**: Fundamental concepts and workflows
-- **Production Guides**: Deployment, scaling, security, performance
+| Lab | Time | Level | Topics |
+|---|---|---|---|
+| 01 Simple app | 15–30 min | Beginner | Dockerfile, Compose, health checks |
+| 02 Multi-container | 30–45 min | Beginner+ | Full-stack app, networking, volumes |
+| 03 Image optimisation | 20–30 min | Intermediate | Multi-stage builds, Alpine, layer caching |
+| 04 Logging dashboard | 45–60 min | Intermediate+ | ELK, Prometheus, Grafana |
+| 05 Microservices | 60–90 min | Advanced | API gateway, message queues, contract and load tests |
+| 06 Production deployment | 90–120 min | Advanced | TLS, backups, health checks, hardening |
+| 07 Kubernetes deployment | 2–2.5 h | Advanced | Multi-tier app with Kubernetes manifests |
+| 08 Observability stack | 4–5 h | Advanced | Metrics, tracing, dashboards, incident response |
 
-## 🎯 Learning Paths
+List the labs with `make labs`. Each lab directory has its own README with steps.
 
-### Beginner (0-3 months)
-```
-Concepts:    01-05
-Labs:        01, 02
-Time:        40-60 hours
-Skills:      Docker fundamentals, Compose, basic networking
-```
+### Further reading in the repository
 
-### Intermediate (3-6 months)
-```
-Concepts:    06-07
-Labs:        03, 04
-Time:        50-70 hours
-Skills:      Security, monitoring, optimization, troubleshooting
-```
+- [docs/](docs/INDEX.md): 49 guides and references (about 28,000 lines), including learning paths, cheat sheets, troubleshooting flowcharts and production guides.
+- [case-studies/](case-studies/README.md): anonymised adoption scenarios, from startup scale-up to enterprise rollout. They are illustrative and have not been independently verified.
+- [utilities/](utilities/automation/README.md): Dockerfile and Compose templates, profiling and benchmarking scripts, and security hardening guides.
 
-### Advanced (6-12 months)
-```
-Concepts:    08-10
-Labs:        05, 06
-Time:        80-120 hours
-Skills:      Orchestration, microservices, production deployment
-```
+## Learning paths
 
-### Expert (12+ months)
-```
-Concepts:    11-13
-Labs:        07, 08
-Time:        100-150 hours
-Skills:      Kubernetes, GitOps, observability, infrastructure as code
-```
+| Path | Concepts | Labs | Effort | Focus |
+|---|---|---|---|---|
+| Beginner | 01–05 | 01, 02 | 40–60 h | Fundamentals, Compose, basic networking |
+| Intermediate | 06–07 | 03, 04 | 50–70 h | Security, monitoring, optimisation |
+| Advanced | 08–10 | 05, 06 | 80–120 h | Orchestration, microservices, CI/CD, production |
+| Expert | 11–13 | 07, 08 | 100–150 h | Kubernetes, GitOps, observability |
 
-## 🛠️ Usage Examples
+Detailed curricula, including time-constrained and certification-prep tracks, are in [docs/learning-paths/](docs/learning-paths/).
 
-### Using Make Commands
-```bash
-# Show available commands
-make help
+## Quality and verification
 
-# Set up development environment
-make setup
+These checks run on every push:
 
-# Run all validation tests
-make test-all
+| Check | What it guarantees |
+|---|---|
+| pytest (370+ tests) | Harness statistics match published t-tables. Every YAML file in the repository parses. Documentation links resolve. Every lab and concept has a README. Dockerfile health checks only use tools the image ships, and `# syntax=` directives are on line 1. |
+| ruff and black | Consistent, lint-clean Python in `research/` and `tests/` |
+| hadolint | Every Dockerfile is linted against the committed [.hadolint.yaml](.hadolint.yaml) policy |
+| Build tests | Representative images (concept 01, lab 01) build in CI |
+| Research smoke run | Two experiments run end to end on a GitHub-hosted runner |
+| Security scan | Trivy image scanning, CodeQL analysis and Safety dependency checks, plus weekly Dependabot updates |
 
-# Unit tests and repository invariants (no Docker needed)
-make test-unit
+GitHub Actions runs 7 active workflows: CI, research benchmarks, Dockerfile linting, security scanning, performance testing, release automation and README badge updates.
 
-# Reproducible benchmarks
-make research-validate
-make research-run EXP=exp01_base_image_footprint
+**Scope of these guarantees.** They catch syntax, structure and a defined set of known mistakes. They do not prove that every example is correct, current or production-safe. The labs are teaching material; review and adapt them before production use. See [SECURITY.md](.github/SECURITY.md) for the security policy.
 
-# Start a specific lab
-make lab-01
-
-# Stop a specific lab
-make stop-lab-01
-
-# View project statistics
-make stats
-```
-
-### Manual Docker Commands
-```bash
-# Build and run lab 01
-cd labs/lab_01_simple_app
-docker build -t my-app .
-docker-compose up
-
-# Test the application
-curl http://localhost:8080
-
-# Stop containers
-docker-compose down
-```
-
-### Work Through Concepts
-```bash
-# Read about images and layers
-cat concepts/02_images_layers/README.md
-
-# Try the examples
-cd concepts/02_images_layers
-./inspect_image.sh
-```
-
-## 📋 Key Features
-
-### ✅ Validated Code
-- pytest suite: harness statistics verified against published t-tables; repository invariants (links, structure, every YAML file parses, Dockerfile sanity)
-- hadolint on every Dockerfile against a committed policy
-- All Python scripts compile without errors
-- All Dockerfiles build successfully
-- All Docker Compose files have valid syntax
-- Automated CI/CD pipeline catches issues immediately
-- **Zero Security Vulnerabilities** - All dependencies patched and monitored
-
-### ✅ Production Patterns
-- Security hardening techniques
-- SSL/TLS configuration
-- Database backup strategies
-- Health checks and monitoring
-- Load balancing and scaling
-- Disaster recovery procedures
-- Runtime security and compliance
-
-### ✅ Real-World Scenarios
-- Microservices architecture
-- Multi-database setup
-- API gateway patterns
-- Log aggregation
-- Distributed tracing
-- Observability stack
-- Container security scanning
-
-### ✅ Comprehensive Tooling
-- Makefile for common tasks
-- Automation scripts
-- Docker utilities
-- Performance benchmarking tools
-- Security scanning templates
-- Automated dependency updates (Dependabot)
-- GitHub Actions CI/CD (8 workflows, including weekly research benchmarks)
-
-## 🔍 Project Statistics
-
-```
-Dockerfiles:        48
-Docker Compose:     22
-Labs:               8 complete
-Concepts:           13 modules
-Experiments:        4 reproducible (research/)
-Unit tests:         370+ (pytest)
-Documentation:      40+ guides (18,700+ lines)
-Scripts:            40+ utilities
-Languages:          Python, Go, JavaScript, Shell
-Security:           0 vulnerabilities
-CI/CD Workflows:    8 automated
-GitHub Commits:     60+ (tracked across phases)
-```
-
-## 🧪 Verification & Testing
-
-All code is automatically tested:
+## Development
 
 ```bash
-# Run all validations locally
-make test-all
+python -m pip install -r requirements.txt -r requirements-dev.txt
 
-# Or individual validations
-make test-dockerfiles
-make test-compose
-make test-scripts
-make test-labs
+make test-unit            # pytest: harness and repository invariants (no Docker needed)
+make lint-python          # ruff and black
+make research-validate    # experiment definitions and fixtures
+make help                 # every other target
 ```
 
-GitHub Actions runs on every commit to ensure:
-- ✓ 370+ pytest checks pass (statistics vs published tables, runner behaviour, link integrity, every YAML file parses, Dockerfile healthcheck and parser-directive sanity)
-- ✓ Python syntax is valid
-- ✓ Shell scripts are executable
-- ✓ YAML configurations are valid
-- ✓ Project structure is intact
-- ✓ All labs have required files
-- ✓ Docker images build successfully
+Optional pre-commit hooks (ruff, black, hadolint, shellcheck, yamllint):
 
-## 📖 Documentation
-
-- **[GETTING_STARTED.md](docs/GETTING_STARTED.md)** - Complete setup and first steps guide
-- **[CONTRIBUTING.md](docs/CONTRIBUTING.md)** - How to contribute improvements
-- **[PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md)** - Detailed directory structure
-- **[docs/](docs/)** - All comprehensive guides
-
-## 🎓 Learning Resources
-
-### In This Repository
-- 13 concept modules with explanations and examples
-- 8 complete lab projects with real applications
-- 4 reproducible benchmark experiments with statistical reports
-- 40+ documentation files
-- Quick reference guides and cheatsheets
-- Troubleshooting flowcharts
-- Case studies from real implementations
-
-### External Resources
-- [Docker Official Documentation](https://docs.docker.com/)
-- [Docker Compose Reference](https://docs.docker.com/compose/compose-file/)
-- [Docker Best Practices](https://docs.docker.com/develop/dev-best-practices/)
-- [Production Deployment Guide](docs/production-deployment.md)
-
-## 🐛 Troubleshooting
-
-### Docker Not Running
 ```bash
-# macOS
-open /Applications/Docker.app
-
-# Linux
-sudo systemctl start docker
-
-# Windows
-# Start Docker Desktop from Start Menu
+pip install pre-commit && pre-commit install
 ```
 
-### Port Already in Use
+## Troubleshooting
+
+**Docker is not running.** On macOS or Windows, start Docker Desktop. On Linux, run `sudo systemctl start docker`.
+
+**Port 8080 is already in use.** Find the process with `lsof -i :8080`, or run lab 01 on another port:
+
 ```bash
-# Find what's using the port
-lsof -i :8080
-
-# Use a different port
-docker-compose -e "PORT=8081" up
+docker compose run --rm -p 8081:5000 simple-app
 ```
 
-### Container Exit Issues
+**A container exits or stays unhealthy.**
+
 ```bash
-# Check logs
-docker-compose logs
-
-# Run container interactively
-docker-compose run app /bin/bash
+docker compose ps                     # state and health
+docker compose logs -f                # application output
+docker compose run --rm simple-app sh # shell in a fresh container (lab 01)
 ```
 
-See [docs/troubleshooting.md](docs/troubleshooting.md) for more solutions.
+More solutions are in [docs/troubleshooting.md](docs/troubleshooting.md).
 
-## 🤝 Contributing
+## Contributing, license and citation
 
-Contributions are welcome! Please see [CONTRIBUTING.md](docs/CONTRIBUTING.md) for:
-- How to report issues
-- How to suggest improvements
-- How to submit pull requests
-- Code and documentation standards
+Contributions are welcome. See [CONTRIBUTING.md](docs/CONTRIBUTING.md), and report bugs or ideas through [GitHub Issues](https://github.com/SatvikPraveen/DockVerseHub/issues). New performance claims should come with an experiment under `research/`, following [METHODOLOGY.md](research/METHODOLOGY.md).
 
-## 📄 License & Citation
+Licensed under the [MIT License](LICENSE).
 
-This project is licensed under the MIT License - see [LICENSE](LICENSE) for details.
-
-If you use DockVerseHub or its benchmark harness in academic work, cite it via [CITATION.cff](CITATION.cff) (GitHub's "Cite this repository" button renders APA and BibTeX).
-
-## 🔒 Security & Automation
-
-### Automated Security Scanning
-- **Trivy**: Container image vulnerability scanning
-- **CodeQL**: Source code security analysis
-- **Bandit**: Python security linting
-- **Safety**: Dependency vulnerability checking
-- **Dependabot**: Automated security updates (weekly)
-
-See [SECURITY.md](.github/SECURITY.md) for complete security policy and incident response procedures.
-
-### CI/CD Pipeline
-- 8 automated GitHub Actions workflows
-- Continuous validation of all code
-- Automated security scanning on every commit
-- Dependency updates with Dependabot
-- Performance testing and reporting
-
-**Status**: ✅ All systems operational | ✅ Zero vulnerabilities | ✅ All tests passing
-
-## 🌟 Getting Involved
-
-- **Report Issues**: Found a bug? [Open an issue](https://github.com/SatvikPraveen/DockVerseHub/issues)
-- **Request Features**: Have ideas? [Start a discussion](https://github.com/SatvikPraveen/DockVerseHub/discussions)
-- **Contribute Code**: See [CONTRIBUTING.md](docs/CONTRIBUTING.md)
-- **Share Knowledge**: Submit case studies or improvements
-
-## 📊 What You'll Learn
-
-After completing DockVerseHub, you'll understand:
-
-- **Fundamentals**: Docker architecture, images, containers, registries
-- **Practical Skills**: Building images, running containers, using Compose
-- **Advanced Topics**: Orchestration, security, monitoring, optimization
-- **Production Ready**: Deployment strategies, backup/recovery, scaling
-- **Best Practices**: Security hardening, efficient image building, operational excellence
-
-## 🎯 Next Steps
-
-1. **Clone the repository** and follow [GETTING_STARTED.md](docs/GETTING_STARTED.md)
-2. **Start with Lab 01** - it takes just 15-30 minutes
-3. **Read the concept modules** corresponding to your level
-4. **Work through all labs** in order
-5. **Apply knowledge** to your own projects
-6. **Stay updated** by watching this repository
-
----
-
-**Ready to master Docker?** Start with:
-```bash
-git clone https://github.com/SatvikPraveen/DockVerseHub.git
-cd DockVerseHub
-make help
-```
-
-Happy learning! 🐳
+If you use DockVerseHub or its benchmark harness in academic work, please cite it using [CITATION.cff](CITATION.cff). GitHub's "Cite this repository" button renders it as APA or BibTeX. When citing a specific result, include the experiment ID, the run ID and the commit recorded in that run's `environment.json`.
