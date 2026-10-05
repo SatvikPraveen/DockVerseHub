@@ -36,6 +36,9 @@ jobs:
           scan-ref: "."
           format: "sarif"
           output: "trivy-results.sarif"
+          # Only report findings that have a released fix; unfixed CVEs reappear
+          # automatically once upstream ships a patched version.
+          ignore-unfixed: true
 
       - name: Upload Trivy scan results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
@@ -110,6 +113,9 @@ jobs:
           image-ref: "${{ steps.build-image.outputs.image_tag }}"
           format: "sarif"
           output: "trivy-image-results.sarif"
+          # Only report OS/library CVEs that have a released fix (e.g. Debian has
+          # no patch yet); they reappear automatically once a fix is published.
+          ignore-unfixed: true
         continue-on-error: true
 
       - name: Check if SARIF file exists and create if missing
