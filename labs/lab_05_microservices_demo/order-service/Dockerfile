@@ -1,6 +1,6 @@
 # File Location: labs/lab_05_microservices_demo/order-service/Dockerfile
 
-FROM golang:1.21-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 # Install git and ca-certificates
 RUN apk add --no-cache git ca-certificates tzdata
@@ -14,9 +14,9 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./app.go
 
 # Development stage
-FROM alpine:3.18 AS development
+FROM alpine:3.24 AS development
 
-RUN apk --no-cache add ca-certificates wget curl
+RUN apk --no-cache upgrade && apk --no-cache add ca-certificates wget curl
 
 WORKDIR /root/
 
