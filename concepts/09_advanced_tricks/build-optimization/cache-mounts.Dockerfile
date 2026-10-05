@@ -5,7 +5,7 @@
 
 ARG NODE_VERSION=18
 ARG PYTHON_VERSION=3.11
-ARG GO_VERSION=1.21
+ARG GO_VERSION=1.27
 
 # Node.js example with npm cache mounts
 FROM node:${NODE_VERSION}-alpine AS node-cache-demo
@@ -86,7 +86,7 @@ RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
     CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o app .
 
 # Multi-language build with shared cache mounts
-FROM alpine:3.18 AS multi-lang-cache
+FROM alpine:3.24 AS multi-lang-cache
 
 # Install multiple package managers
 RUN --mount=type=cache,target=/var/cache/apk \
@@ -153,7 +153,7 @@ RUN --mount=type=cache,target=/var/cache/conditional,sharing=locked \
     fi
 
 # Cache mount for temporary build files
-FROM alpine:3.18 AS temp-cache-demo
+FROM alpine:3.24 AS temp-cache-demo
 
 WORKDIR /build
 

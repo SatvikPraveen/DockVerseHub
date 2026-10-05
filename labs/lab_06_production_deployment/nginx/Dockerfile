@@ -1,5 +1,5 @@
 # Location: labs/lab_06_production_deployment/nginx/Dockerfile
-FROM nginx:1.25-alpine
+FROM nginx:1.31-alpine
 
 # Install dependencies
 RUN apk add --no-cache \

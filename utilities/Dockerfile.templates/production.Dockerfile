@@ -1,7 +1,7 @@
 # Location: utilities/Dockerfile.templates/production.Dockerfile
 # Production-ready Dockerfile with security hardening
 
-FROM alpine:3.19 AS base
+FROM alpine:3.24 AS base
 
 # Install security updates and essential packages
 RUN apk update && apk upgrade && \

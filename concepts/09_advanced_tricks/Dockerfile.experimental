@@ -6,7 +6,7 @@
 
 ARG BUILDKIT_SYNTAX=docker/dockerfile:1.7-labs
 ARG BASE_IMAGE=alpine:3.18
-ARG GOLANG_VERSION=1.21
+ARG GOLANG_VERSION=1.27
 
 # Experimental: Import external Dockerfile
 # FROM scratch AS import-demo
