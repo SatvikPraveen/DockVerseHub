@@ -54,8 +54,6 @@ COPY --from=builder /root/.local /home/appuser/.local
 
 # Copy only necessary application files
 COPY --chown=appuser:appuser app.py .
-COPY --chown=appuser:appuser static/ ./static/
-COPY --chown=appuser:appuser templates/ ./templates/
 
 # Switch to non-root user
 USER appuser
