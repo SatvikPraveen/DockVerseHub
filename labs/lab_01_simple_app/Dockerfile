@@ -6,14 +6,22 @@ FROM python:3.11-slim
 # Set working directory inside container
 WORKDIR /app
 
+# Apply pending Debian security updates on top of the base image
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
 # Create non-root user for security
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 # Copy requirements first for better layer caching
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Upgrade the packaging toolchain shipped in the base image (pip, setuptools
+# and wheel bundled with python:3.11-slim lag behind security fixes), then
+# install the application dependencies
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY app.py .
