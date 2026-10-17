@@ -3,8 +3,9 @@
 
 FROM alpine:latest
 
-# Install basic utilities
-RUN apk add --no-cache \
+# Apply pending Alpine security updates on top of the base image, then
+# install basic utilities
+RUN apk upgrade --no-cache && apk add --no-cache \
     curl \
     wget \
     ca-certificates
