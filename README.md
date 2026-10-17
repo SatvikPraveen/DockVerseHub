@@ -10,7 +10,7 @@
 ![Experiments](https://img.shields.io/badge/Experiments-4-teal?style=flat)
 ![Stars](https://img.shields.io/badge/Stars-0-yellow?style=flat)
 ![Forks](https://img.shields.io/badge/Forks-0-lightgrey?style=flat)
-![Issues](https://img.shields.io/badge/Issues-1-green?style=flat)
+![Issues](https://img.shields.io/badge/Issues-0-green?style=flat)
 ![Last Updated](https://img.shields.io/badge/Last%20Updated-2026--10--17-brightgreen?style=flat)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![Contributions Welcome](https://img.shields.io/badge/Contributions-Welcome-brightgreen.svg)
