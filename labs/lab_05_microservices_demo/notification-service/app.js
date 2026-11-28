@@ -47,7 +47,7 @@ const notificationSchema = new mongoose.Schema({
 const Notification = mongoose.model("Notification", notificationSchema);
 
 // Email transporter
-const emailTransporter = nodemailer.createTransporter({
+const emailTransporter = nodemailer.createTransport({
   host: "localhost",
   port: 1025,
   ignoreTLS: true,
