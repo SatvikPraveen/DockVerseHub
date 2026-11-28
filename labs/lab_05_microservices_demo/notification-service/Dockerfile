@@ -1,6 +1,6 @@
 # File Location: labs/lab_05_microservices_demo/notification-service/Dockerfile
 
-FROM node:18-alpine AS base
+FROM node:22-alpine AS base
 
 # Install dumb-init
 RUN apk add --no-cache dumb-init curl
