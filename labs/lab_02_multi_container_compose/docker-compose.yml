@@ -87,9 +87,11 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      target: development
     container_name: fullstack_frontend
     environment:
-      REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:5000}
+      # Read by the Vite dev server when it starts (no rebuild needed)
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:5000}
       NODE_ENV: ${NODE_ENV:-development}
     volumes:
       - ./frontend:/app
