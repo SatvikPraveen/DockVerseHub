@@ -1,10 +1,10 @@
-// File Location: labs/lab_02_multi_container_compose/frontend/src/App.js
+// File Location: labs/lab_02_multi_container_compose/frontend/src/App.jsx
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 function App() {
   const [users, setUsers] = useState([]);
