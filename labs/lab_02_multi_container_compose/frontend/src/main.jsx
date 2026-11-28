@@ -1,4 +1,4 @@
-// File Location: labs/lab_02_multi_container_compose/frontend/src/index.js
+// File Location: labs/lab_02_multi_container_compose/frontend/src/main.jsx
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';

@@ -24,8 +24,13 @@ spec:
         imagePullPolicy: Never  # For local Minikube development
         ports:
         - containerPort: 80
+        # The frontend is a static Vite bundle: VITE_API_BASE_URL is inlined at
+        # image build time (docker build --build-arg VITE_API_BASE_URL=...), so
+        # this runtime variable does not change the URL the browser calls. It is
+        # kept to document the configured API address (same as with CRA, whose
+        # REACT_APP_* variables were also build-time only).
         env:
-        - name: REACT_APP_API_BASE_URL
+        - name: VITE_API_BASE_URL
           valueFrom:
             configMapKeyRef:
               name: app-config

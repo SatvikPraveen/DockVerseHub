@@ -1,25 +1,25 @@
 # File Location: labs/lab_02_multi_container_compose/frontend/Dockerfile
 
 # Multi-stage build for React frontend
-FROM node:18-alpine as base
+FROM node:22-alpine AS base
 
 # Set working directory
 WORKDIR /app
 
-# Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
+# Install dumb-init for proper signal handling and curl for the health check
+RUN apk add --no-cache dumb-init curl
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && adduser -S reactjs -u 1001
 
 # Development stage
-FROM base as development
+FROM base AS development
 
 # Copy package files
 COPY package*.json ./
 
 # Install all dependencies (including dev dependencies)
-RUN npm ci || npm install
+RUN npm ci
 
 # Copy source code
 COPY . .
@@ -37,33 +37,36 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:3000 || exit 1
 
-# Start development server
+# Start the Vite development server (npm start is an alias for vite)
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["npm", "start"]
 
 # Build stage
-FROM base as build
+FROM base AS build
 
 # Copy package files
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci || npm install
+RUN npm ci
 
 # Copy source code
 COPY . .
 
-# Build the application (if build script exists)
-RUN npm run build 2>/dev/null || mkdir -p /app/build && echo '<html><body><h1>Frontend App</h1></body></html>' > /app/build/index.html || true
+# Build the application. Vite inlines VITE_* variables at build time:
+# docker build --build-arg VITE_API_URL=http://host:5000 .
+ARG VITE_API_URL=http://localhost:5000
+ENV VITE_API_URL=$VITE_API_URL
+RUN npm run build
 
 # Production stage
-FROM nginx:alpine as production
+FROM nginx:alpine AS production
 
 # Install curl for health checks
 RUN apk add --no-cache curl
 
 # Copy built app from build stage
-COPY --from=build /app/build /usr/share/nginx/html
+COPY --from=build /app/dist /usr/share/nginx/html
 
 # Copy custom nginx configuration
 COPY nginx.conf /etc/nginx/nginx.conf

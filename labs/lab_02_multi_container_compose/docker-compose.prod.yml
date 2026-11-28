@@ -127,7 +127,7 @@ services:
     environment:
       NODE_ENV: production
     volumes:
-      - static_files_prod:/app/build
+      - static_files_prod:/app/dist
     networks:
       - frontend
     restart: always

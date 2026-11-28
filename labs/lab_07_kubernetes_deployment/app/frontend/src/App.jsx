@@ -8,7 +8,7 @@ function App() {
   const [formData, setFormData] = useState({ name: '', email: '' });
   const [editingId, setEditingId] = useState(null);
 
-  const apiBaseUrl = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
   // Fetch users on component mount
   useEffect(() => {
@@ -99,7 +99,7 @@ function App() {
     <div className="App">
       <header className="App-header">
         <h1>Lab 07: Kubernetes User Manager</h1>
-        <p>Running in: {process.env.NODE_ENV || 'production'}</p>
+        <p>Running in: {import.meta.env.MODE}</p>
       </header>
 
       <main className="container">

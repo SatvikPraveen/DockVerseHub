@@ -65,10 +65,10 @@ docker-compose -f docker-compose.prod.yml up -d --scale api=3
 
 ### Frontend Service
 
-- React 18 application
-- Hot reload in development
+- React 18 application built with Vite
+- Hot reload in development (Vite dev server on port 3000; `npm start` and `npm run dev` both run `vite`)
 - Optimized build for production
-- Environment-based configuration
+- Environment-based configuration (`VITE_*` variables: read by the dev server at start-up, inlined into the production bundle at build time via `--build-arg`)
 
 ### API Service
 
@@ -116,7 +116,7 @@ API_SECRET_KEY=your-secret-key-here
 FLASK_ENV=development
 
 # Frontend
-REACT_APP_API_URL=http://localhost:5000
+VITE_API_URL=http://localhost:5000
 ```
 
 ## Available Endpoints
@@ -175,7 +175,7 @@ docker-compose exec db psql -U app_user -d fullstack_app
 # API tests
 docker-compose exec api python -m pytest
 
-# Frontend tests
+# Frontend tests (Vitest)
 docker-compose exec frontend npm test
 ```
 
@@ -233,7 +233,7 @@ docker cp $(docker-compose ps -q redis):/data/dump.rdb ./redis-backup.rdb
 
 1. **Port Conflicts**: Change port mappings in docker-compose.yml
 2. **Database Connection**: Verify DATABASE_URL environment variable
-3. **Frontend API Calls**: Check REACT_APP_API_URL configuration
+3. **Frontend API Calls**: Check VITE_API_URL configuration (production images need it at build time: `--build-arg VITE_API_URL=...`)
 
 ### Debug Commands
 
